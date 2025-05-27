@@ -1,3 +1,4 @@
+
 import type { Timestamp } from 'firebase/firestore';
 
 export interface UserProfile {
@@ -6,8 +7,8 @@ export interface UserProfile {
   displayName: string | null;
   email: string | null;
   photoURL: string | null;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdAt: Timestamp; // Keep as Timestamp if only used server-side or converted before client
+  updatedAt: Timestamp; // Keep as Timestamp if only used server-side or converted before client
   bio?: string;
 }
 
@@ -22,10 +23,9 @@ export interface Chat {
   participants: string[]; // array of user IDs
   participantDetails: ChatParticipant[]; // denormalized for easier display
   lastMessageText?: string;
-  lastMessageTimestamp?: Timestamp;
-  lastMessageSenderId?: string;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  lastMessageTimestamp?: Timestamp; // Consider converting to string/number if passed to client
+  createdAt: Timestamp;            // Consider converting to string/number if passed to client
+  updatedAt: Timestamp;            // Consider converting to string/number if passed to client
   // unreadCounts?: { [userId: string]: number }; // Optional
 }
 
@@ -41,7 +41,7 @@ export interface Message {
   mediaUrl?: string;
   mediaType?: MessageMediaType;
   fileName?: string; // For file media type
-  timestamp: Timestamp;
+  timestamp: string; // Changed from Timestamp to string (ISO date string)
   deleted?: boolean; // Soft delete
   reactions?: { [emoji: string]: string[] }; // emoji: [userIds]
 }

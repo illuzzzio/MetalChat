@@ -30,8 +30,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import Image from 'next/image';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { cn } from '@/lib/utils';
 
-// Example Chat List Item (will be moved and expanded)
 interface ChatListItemProps {
   id: string;
   name: string;
@@ -57,7 +57,14 @@ function ChatListItem({ id, name, lastMessage, avatarUrl, active, unreadCount }:
         )}
         aria-current={active ? "page" : undefined}
       >
-        <Image src={avatarUrl} alt={name} width={isCollapsed ? 32 : 40} height={isCollapsed ? 32 : 40} className="rounded-full shrink-0" data-ai-hint="avatar person" />
+        <Image
+          src={avatarUrl}
+          alt={name}
+          width={isCollapsed ? 32 : 40}
+          height={isCollapsed ? 32 : 40}
+          className="rounded-full shrink-0"
+          data-ai-hint="avatar person"
+        />
         {!isCollapsed && (
           <div className="ml-3 overflow-hidden flex-grow">
             <p className="font-semibold text-sm truncate text-sidebar-foreground">{name}</p>
@@ -74,15 +81,12 @@ function ChatListItem({ id, name, lastMessage, avatarUrl, active, unreadCount }:
   );
 }
 
-
-// Mock Chat Data
 const mockChats: ChatListItemProps[] = [
   { id: '1', name: 'Alice Wonderland', lastMessage: 'Hey, how are you?', avatarUrl: 'https://placehold.co/40x40.png', active: true, unreadCount: 2 },
   { id: '2', name: 'Bob The Builder', lastMessage: 'Project update: Almost done!', avatarUrl: 'https://placehold.co/40x40.png', unreadCount: 0 },
   { id: '3', name: 'Charlie Chaplin', lastMessage: 'Funny video attached 🤣', avatarUrl: 'https://placehold.co/40x40.png' },
   { id: '4', name: 'Diana Prince', lastMessage: 'Meeting at 3 PM.', avatarUrl: 'https://placehold.co/40x40.png', unreadCount: 5 },
 ];
-
 
 function AppSidebar() {
   const pathname = usePathname();
@@ -95,13 +99,13 @@ function AppSidebar() {
   ];
 
   return (
-    <Sidebar collapsible="icon" variant="sidebar" defaultOpen={true}>
+    <Sidebar collapsible="icon" variant="sidebar">
       <SidebarHeader className={cn("p-3 items-center", isCollapsed ? 'justify-center' : 'justify-between')}>
         {!isCollapsed && (
           <Link href="/chat" className="flex items-center gap-2">
-             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-8 w-8 text-accent">
-              <path d="M14.5 16.5L12 22l-3-<seg_23>L9.5 16.5M12 2L3 7v10l9 5 9-5V7L12 2zM3 7l9 5 9-5M3 17l9-5 9 5M12 12.5V22"/>
-              <path d="M12 2L6 5l6 3 6-3-6-3z"/> {/* Simplified gem / metal logo */}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-8 w-8 text-accent">
+              <path d="M14.5 16.5L12 22l-3-5.5L9.5 16.5M12 2L3 7v10l9 5 9-5V7L12 2zM3 7l9 5 9-5M3 17l9-5 9 5M12 12.5V22" />
+              <path d="M12 2L6 5l6 3 6-3-6-3z" />
             </svg>
             <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-accent via-purple-400 to-pink-500">
               MetalChat
@@ -113,7 +117,7 @@ function AppSidebar() {
         </Button>
       </SidebarHeader>
       <Separator className="bg-sidebar-border" />
-      
+
       <SidebarContent className="p-0">
         <ScrollArea className={cn("h-full", isCollapsed ? "w-[calc(var(--sidebar-width-icon)_-_1px)]" : "w-[calc(var(--sidebar-width)_-_1px)]")}>
           {isCollapsed ? (
@@ -124,14 +128,14 @@ function AppSidebar() {
                     <TooltipTrigger asChild>
                       <Link href={`/chat/${chat.id}`} passHref>
                         <Button variant={pathname.startsWith(`/chat/${chat.id}`) ? "secondary" : "ghost"} size="icon" className="rounded-lg">
-                          <Image src={chat.avatarUrl} alt={chat.name} width={24} height={24} className="rounded-full" data-ai-hint="avatar person"/>
+                          <Image src={chat.avatarUrl} alt={chat.name} width={24} height={24} className="rounded-full" data-ai-hint="avatar person" />
                         </Button>
                       </Link>
                     </TooltipTrigger>
                     <TooltipContent side="right" className="bg-popover text-popover-foreground">
                       <p>{chat.name}</p>
                       {chat.unreadCount && chat.unreadCount > 0 && (
-                         <span className="ml-2 text-xs bg-accent text-accent-foreground font-bold rounded-full px-1.5 py-0.5">
+                        <span className="ml-2 text-xs bg-accent text-accent-foreground font-bold rounded-full px-1.5 py-0.5">
                           {chat.unreadCount}
                         </span>
                       )}
@@ -171,7 +175,7 @@ function AppSidebar() {
             </SidebarMenuItem>
           ))}
           <SidebarMenuItem className={cn(isCollapsed && "justify-center w-full flex")}>
-             <div className={cn(isCollapsed ? "mx-auto" : "")}><UserButton /></div>
+            <div className={cn(isCollapsed ? "mx-auto" : "")}><UserButton /></div>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

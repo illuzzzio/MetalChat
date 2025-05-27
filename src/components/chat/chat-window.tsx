@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { Message, UserProfile, ChatParticipant } from '@/types';
@@ -8,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Bot, ArrowLeft, Search, Phone, Video, Info } from 'lucide-react';
 import React, { useState, useEffect, useRef } from 'react';
-import { Timestamp } from 'firebase/firestore'; // For mock data
+import { Timestamp } from 'firebase/firestore'; // For creating new Timestamps to send TO Firestore
 import { useUser } from '@clerk/nextjs'; // To get current user
 import { summarizeChat as summarizeChatFlow, type SummarizeChatInput } from '@/ai/flows/summarize-chat';
 import { useToast } from '@/hooks/use-toast';
@@ -28,13 +29,11 @@ import Link from 'next/link';
 
 interface ChatWindowProps {
   chatId: string;
-  // These would typically be fetched based on chatId
-  initialMessages?: Message[];
+  initialMessages?: Message[]; // Expects timestamp as string
   chatParticipants?: ChatParticipant[];
-  chatName?: string; // For group chats or to display user's name
+  chatName?: string;
 }
 
-// Mock current user for display purposes if Clerk user is not fully loaded
 const MOCK_FALLBACK_USER_ID = 'current-user-id-fallback';
 
 
@@ -45,31 +44,32 @@ export function ChatWindow({ chatId, initialMessages = [], chatParticipants = []
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { user: clerkUser, isLoaded: isClerkLoaded } = useUser();
   const { toast } = useToast();
+  const mockMessagesInitialized = useRef(false);
 
   const currentUserId = isClerkLoaded && clerkUser ? clerkUser.id : MOCK_FALLBACK_USER_ID;
 
-  // Mock messages if none provided initially
   useEffect(() => {
-    if (initialMessages.length === 0 && isClerkLoaded) {
+    if (!mockMessagesInitialized.current && initialMessages.length === 0 && isClerkLoaded) {
       const mockSenderId = chatParticipants.find(p => p.id !== currentUserId)?.id || 'other-user-id';
       const mockSenderPhotoURL = chatParticipants.find(p => p.id !== currentUserId)?.photoURL || 'https://placehold.co/40x40.png?text=OS';
       const mockSenderDisplayName = chatParticipants.find(p => p.id !== currentUserId)?.displayName || 'Other User';
       
       const currentUserPhotoURL = clerkUser?.imageUrl || 'https://placehold.co/40x40.png?text=ME';
-      const currentUserDisplayName = clerkUser?.firstName || 'Me';
+      const currentUserDisplayName = clerkUser?.firstName || clerkUser?.username || 'Me';
+
+      const now = new Date().toISOString(); // Use ISO string for timestamps
 
       setMessages([
-        { id: '1', chatId, senderId: mockSenderId, senderPhotoURL: mockSenderPhotoURL, senderDisplayName: mockSenderDisplayName, text: 'Hey there! This is a mock message.', timestamp: Timestamp.now(), mediaUrl: 'https://placehold.co/300x200.png', mediaType: 'image', fileName: 'placeholder.png' },
-        { id: '2', chatId, senderId: currentUserId, senderPhotoURL: currentUserPhotoURL, senderDisplayName: currentUserDisplayName, text: 'Hi! Nice to see this mock chat window.', timestamp: Timestamp.now() },
-        { id: '3', chatId, senderId: mockSenderId, senderPhotoURL: mockSenderPhotoURL, senderDisplayName: mockSenderDisplayName, text: 'What do you think of MetalChat?', timestamp: Timestamp.now() },
-        { id: '4', chatId, senderId: mockSenderId, senderPhotoURL: mockSenderPhotoURL, senderDisplayName: mockSenderDisplayName, text: 'Here is an audio file.', mediaType: 'audio', mediaUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', fileName: 'SoundHelix-Song-1.mp3', timestamp: Timestamp.now() },
-
+        { id: '1', chatId, senderId: mockSenderId, senderPhotoURL: mockSenderPhotoURL, senderDisplayName: mockSenderDisplayName, text: 'Hey there! This is a mock message.', timestamp: now, mediaUrl: 'https://placehold.co/300x200.png', mediaType: 'image', fileName: 'placeholder.png' },
+        { id: '2', chatId, senderId: currentUserId, senderPhotoURL: currentUserPhotoURL, senderDisplayName: currentUserDisplayName, text: 'Hi! Nice to see this mock chat window.', timestamp: now },
+        { id: '3', chatId, senderId: mockSenderId, senderPhotoURL: mockSenderPhotoURL, senderDisplayName: mockSenderDisplayName, text: 'What do you think of MetalChat?', timestamp: now },
+        { id: '4', chatId, senderId: mockSenderId, senderPhotoURL: mockSenderPhotoURL, senderDisplayName: mockSenderDisplayName, text: 'Here is an audio file.', mediaType: 'audio', mediaUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', fileName: 'SoundHelix-Song-1.mp3', timestamp: now },
       ]);
+      mockMessagesInitialized.current = true;
     }
   }, [initialMessages, chatId, currentUserId, chatParticipants, isClerkLoaded, clerkUser]);
 
   useEffect(() => {
-    // Scroll to bottom when messages change or component mounts
     if (scrollAreaRef.current) {
       const viewport = scrollAreaRef.current.querySelector('div[data-radix-scroll-area-viewport]');
       if (viewport) {
@@ -83,22 +83,20 @@ export function ChatWindow({ chatId, initialMessages = [], chatParticipants = []
       toast({ title: "Error", description: "User not loaded. Cannot send message.", variant: "destructive" });
       return;
     }
-    // This is where you'd integrate with Firebase to send the message
     console.log('Sending message:', { chatId, text, file, senderId: clerkUser.id });
     const newMessage: Message = {
-      id: String(Date.now()), // Temporary ID
+      id: String(Date.now()), 
       chatId,
       senderId: clerkUser.id,
       senderPhotoURL: clerkUser.imageUrl,
       senderDisplayName: clerkUser.firstName || clerkUser.username || 'Current User',
       text: text || undefined,
-      mediaUrl: file ? URL.createObjectURL(file) : undefined, // Temporary display
+      mediaUrl: file ? URL.createObjectURL(file) : undefined, 
       mediaType: file ? (file.type.startsWith('image/') ? 'image' : file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'file') : undefined,
       fileName: file?.name,
-      timestamp: Timestamp.now(),
+      timestamp: new Date().toISOString(), // Use ISO string
     };
     setMessages((prevMessages) => [...prevMessages, newMessage]);
-    // Simulate API call success
     toast({ title: "Message Sent", description: "Your message is on its way!", variant: "default" });
   };
 
@@ -108,7 +106,7 @@ export function ChatWindow({ chatId, initialMessages = [], chatParticipants = []
       return;
     }
     setIsLoadingSummary(true);
-    setSummary(null); // Clear previous summary
+    setSummary(null); 
 
     const chatHistoryText = messages
       .map(msg => `${msg.senderDisplayName || 'User'}: ${msg.text || (msg.fileName ? `[shared ${msg.mediaType}: ${msg.fileName}]` : '[shared media]')}`)
@@ -133,7 +131,6 @@ export function ChatWindow({ chatId, initialMessages = [], chatParticipants = []
 
   return (
     <div className="flex flex-col h-full bg-background text-foreground">
-      {/* Chat Header */}
       <header className="flex items-center p-3 border-b border-border bg-card shadow-sm sticky top-0 z-10 h-[65px]">
         <Link href="/chat" passHref className="md:hidden mr-2">
            <Button variant="ghost" size="icon">
@@ -146,7 +143,7 @@ export function ChatWindow({ chatId, initialMessages = [], chatParticipants = []
         </Avatar>
         <div className="flex-grow">
           <h2 className="font-semibold text-lg text-foreground truncate">{displayChatName}</h2>
-          <p className="text-xs text-muted-foreground">Online</p> {/* Placeholder status */}
+          <p className="text-xs text-muted-foreground">Online</p> 
         </div>
         <div className="flex items-center gap-1">
           <AlertDialog>
@@ -172,14 +169,9 @@ export function ChatWindow({ chatId, initialMessages = [], chatParticipants = []
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          {/* Placeholder for other actions like search, call, info */}
-          {/* <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-accent"><Search className="w-5 h-5" /></Button>
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-accent"><Phone className="w-5 h-5" /></Button>
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-accent"><Info className="w-5 h-5" /></Button> */}
         </div>
       </header>
 
-      {/* Messages Area */}
       <ScrollArea ref={scrollAreaRef} className="flex-grow p-4 overflow-y-auto transparent-scrollbar">
         <div className="space-y-2">
           {messages.map((msg) => (
@@ -192,7 +184,6 @@ export function ChatWindow({ chatId, initialMessages = [], chatParticipants = []
         </div>
       </ScrollArea>
 
-      {/* Message Input */}
       <MessageInput onSendMessage={handleSendMessage} chatId={chatId} disabled={!isClerkLoaded} />
       <style jsx global>{`
         .transparent-scrollbar::-webkit-scrollbar {

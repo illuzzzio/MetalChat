@@ -1,3 +1,4 @@
+
 'use client';
 
 import type { Message } from '@/types';
@@ -9,7 +10,7 @@ import { FileText, Download, PlayCircle, Mic } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface MessageItemProps {
-  message: Message;
+  message: Message; // Expects timestamp as string
   isCurrentUser: boolean;
 }
 
@@ -57,7 +58,6 @@ export function MessageItem({ message, isCurrentUser }: MessageItemProps) {
              <Mic className="w-8 h-8 text-accent" />
             <div>
               <p className="font-medium text-sm">{message.fileName || 'Shared audio'}</p>
-              {/* Basic audio player or link */}
               <audio controls src={message.mediaUrl} className="w-full max-w-xs h-10 mt-1"></audio>
             </div>
           </div>
@@ -117,7 +117,7 @@ export function MessageItem({ message, isCurrentUser }: MessageItemProps) {
             message.text || message.mediaUrl ? 'text-right' : 'text-left'
           )}
         >
-          {format(message.timestamp.toDate(), 'p')}
+          {format(new Date(message.timestamp), 'p')} {/* Parse ISO string to Date */}
         </p>
       </div>
       <style jsx global>{`
