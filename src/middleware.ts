@@ -1,19 +1,20 @@
+// middleware.ts
 
 import { authMiddleware } from "@clerk/nextjs/server";
 
-console.log("Middleware file (src/middleware.ts) is being executed."); // Added for debugging
-
 export default authMiddleware({
-  // Routes that can be accessed while signed out
-  publicRoutes: ['/', '/sign-in(.*)', '/sign-up(.*)', '/api/genkit(.*)'],
-  // Routes that can always be accessed, and have
-  // no authentication information
+  // Routes that can be accessed without authentication
+  publicRoutes: ['/', '/sign-in', '/sign-up', '/api/genkit'],
+  // Routes that Clerk should skip entirely (e.g. analytics, etc.)
   ignoredRoutes: [],
 });
 
 export const config = {
-  // Protects all routes, including api/trpc.
-  // See https://clerk.com/docs/references/nextjs/auth-middleware
-  // for more information about configuring your Middleware
-  matcher: ["/((?!.+\\.[\\w]+$|_next).*)", "/", "/(api|trpc)(.*)"],
+  // Matcher tells Next.js which routes to apply middleware to
+  matcher: [
+    '/((?!.+\\.[\\w]+$|_next|favicon.ico).*)', // Protect all non-static routes
+    '/', 
+    '/(api|trpc)(.*)',
+  ],
 };
+
