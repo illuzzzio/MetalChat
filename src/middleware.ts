@@ -1,4 +1,7 @@
+
 import { authMiddleware } from "@clerk/nextjs/server";
+
+console.log("Middleware file (src/middleware.ts) is being executed."); // Added for debugging
 
 export default authMiddleware({
   // Routes that can be accessed while signed out
