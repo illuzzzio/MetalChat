@@ -18,7 +18,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useUser, useAuth } from '@clerk/nextjs';
 import AddFriendDialog from '@/components/add-friend-dialog';
 import CreateGroupDialog from '@/components/create-group-dialog';
-import ManageGroupMembersDialog from '@/components/manage-group-members-dialog'; // New import
+import ManageGroupMembersDialog from '@/components/manage-group-members-dialog';
 
 
 const LOCAL_STORAGE_PROFILE_KEY_PREFIX = "metalChatUserProfile_";
@@ -50,8 +50,8 @@ export default function HomePage() {
   const [hasMounted, setHasMounted] = useState(false);
   const [isAddFriendDialogOpen, setIsAddFriendDialogOpen] = useState(false);
   const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
-  const [isManageMembersDialogOpen, setIsManageMembersDialogOpen] = useState(false); // New state
-  const [conversationToManage, setConversationToManage] = useState<Conversation | null>(null); // New state
+  const [isManageMembersDialogOpen, setIsManageMembersDialogOpen] = useState(false);
+  const [conversationToManage, setConversationToManage] = useState<Conversation | null>(null);
 
 
   const { isSignedIn, user, isLoaded: isClerkLoaded } = useUser();
@@ -70,7 +70,7 @@ export default function HomePage() {
   useEffect(() => {
     if (!hasMounted || !isClerkLoaded || !clerkUserId) return;
 
-    if (!isSignedIn) return; // Middleware should handle this
+    if (!isSignedIn) return; 
     
     const onboardingComplete = localStorage.getItem(`${LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY_PREFIX}${clerkUserId}`);
     if (onboardingComplete !== 'true') {
@@ -91,7 +91,6 @@ export default function HomePage() {
     if (!hasMounted || !clerkUserId || !user) return;
 
     const conversationsRef = collection(db, "conversations");
-    // Fetch conversations where the current user is a member
     const userConversationsQuery = query(
       conversationsRef,
       where("members", "array-contains", clerkUserId),
@@ -109,7 +108,7 @@ export default function HomePage() {
           dataAiHint: data.dataAiHint || (data.isGroup ? "group chat" : "person chat"),
           lastMessage: data.lastMessage || "No messages yet.",
           timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-          messages: [], // Messages loaded separately
+          messages: [], 
           isGroup: data.isGroup !== undefined ? data.isGroup : true,
           isSelfChat: data.isSelfChat || false,
           createdBy: data.createdBy,
@@ -118,14 +117,12 @@ export default function HomePage() {
         });
       });
       
-      // Combine with initialGlobalConversation, ensuring no duplicates if global chat were ever in Firestore
       setConversations(prevConvos => {
         const combined = [...fetchedUserConversations, initialGlobalConversation]
           .filter((convo, index, self) => index === self.findIndex((c) => c.id === convo.id))
           .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         
         if (!selectedConversationId && combined.length > 0) {
-          // Default to the first non-global chat if available, else global
           const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID && !c.isSelfChat);
           const selfChat = combined.find(c => c.isSelfChat);
           setSelectedConversationId(selfChat?.id || firstUserChat?.id || combined[0]?.id || null);
@@ -138,11 +135,15 @@ export default function HomePage() {
       });
 
     }, (error) => {
-      console.error("Error fetching user conversations:", error);
-      toast({ title: "Error", description: "Could not fetch your conversations.", variant: "destructive" });
+      console.error("Error fetching user conversations (onSnapshot):", error);
+      toast({ 
+        title: "Firestore Connection Error", 
+        description: `Could not fetch your conversations: ${error.message}. You may be offline or Firebase configuration is incorrect.`, 
+        variant: "destructive",
+        duration: 7000
+      });
     });
     
-    // Ensure "You" (self-chat) conversation exists
     const selfChatId = `${SELF_CHAT_ID_PREFIX}${clerkUserId}`;
     const selfChatDocRef = doc(db, "conversations", selfChatId);
     getDoc(selfChatDocRef).then(docSnap => {
@@ -154,7 +155,7 @@ export default function HomePage() {
             avatarUrl: selfUserAvatarUrl || undefined
         };
         const newSelfChatData = {
-          name: "You", // This name is mostly for Firestore viewing, sidebar will override
+          name: "You", 
           avatarUrl: selfUserAvatarUrl || `https://placehold.co/100x100.png?text=Y`,
           dataAiHint: "self note user",
           lastMessage: "Notes to self...",
@@ -165,9 +166,11 @@ export default function HomePage() {
           members: [clerkUserId],
           participantDetails: { [clerkUserId]: selfParticipantDetails },
         };
-        setDoc(selfChatDocRef, newSelfChatData).catch(err => console.error("Error creating self chat:", err));
+        setDoc(selfChatDocRef, newSelfChatData).catch(err => {
+            console.error("Error creating self chat:", err);
+            toast({title: "Error", description: `Could not create self-chat: ${err.message}`, variant: "destructive"})
+        });
       } else {
-        // If self-chat exists, check if participantDetails need update (e.g. new photoURL from appUserProfile)
         const existingData = docSnap.data();
         const selfUserDisplayName = appUserProfile?.displayName || user.fullName || user.username || "You";
         const selfUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
@@ -177,7 +180,7 @@ export default function HomePage() {
         const currentAvatar = existingData.avatarUrl;
 
         if (currentSelfDetails?.displayName !== selfUserDisplayName ||
-            currentSelfDetails?.avatarUrl !== (selfUserAvatarUrl || undefined) || // Ensure undefined matches if photoURL is null/empty
+            currentSelfDetails?.avatarUrl !== (selfUserAvatarUrl || undefined) ||
             currentAvatar !== (selfUserAvatarUrl || defaultAvatarPlaceholder) ) {
              updateDoc(selfChatDocRef, {
                 participantDetails: { [clerkUserId]: { displayName: selfUserDisplayName, avatarUrl: selfUserAvatarUrl || undefined } },
@@ -185,6 +188,9 @@ export default function HomePage() {
              }).catch(err => console.error("Error updating self chat details:", err));
         }
       }
+    }).catch(error => {
+        console.error("Error fetching self-chat document:", error);
+        toast({title: "Firestore Error", description: `Failed to get self-chat: ${error.message}`, variant: "destructive"})
     });
 
     return () => unsubscribeUserConvos();
@@ -194,12 +200,10 @@ export default function HomePage() {
   // Fetch messages for the selected conversation
   useEffect(() => {
     if (!selectedConversationId || !clerkUserId || selectedConversationId === SHARED_CONVERSATION_ID) {
-        // Clear messages for global chat or if no selection, global chat messages are not in Firestore this way
         setConversations(prevConvos => prevConvos.map(c => 
             c.id === selectedConversationId ? { ...c, messages: c.id === SHARED_CONVERSATION_ID ? c.messages : [] } : c
         ));
         if (selectedConversationId === SHARED_CONVERSATION_ID && initialGlobalConversation.messages.length === 0) {
-            // Simulate some welcome messages for global chat if empty (client-side only)
             setConversations(prev => prev.map(c => c.id === SHARED_CONVERSATION_ID ? {
                 ...c, messages: [
                     { id: 'global-welcome-1', text: 'Welcome to the global chat!', sender: 'metalAI', timestamp: new Date().toISOString(), type: 'text', userId: 'metalAI-bot', userDisplayName: 'MetalAI' },
@@ -240,7 +244,6 @@ export default function HomePage() {
             ? { 
                 ...convo, 
                 messages: fetchedMessages, 
-                // Update lastMessage and timestamp based on fetched messages
                 lastMessage: fetchedMessages.length > 0 ? (fetchedMessages[fetchedMessages.length -1]?.text || "Media shared") : convo.lastMessage, 
                 timestamp: fetchedMessages.length > 0 ? (fetchedMessages[fetchedMessages.length -1]?.timestamp || convo.timestamp) : convo.timestamp 
               }
@@ -248,8 +251,13 @@ export default function HomePage() {
         ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       );
     }, (error) => {
-      console.error(`Error fetching messages for ${selectedConversationId}:`, error);
-      toast({ title: "Error", description: "Could not fetch messages.", variant: "destructive" });
+      console.error(`Error fetching messages for ${selectedConversationId} (onSnapshot):`, error);
+      toast({ 
+        title: "Firestore Connection Error", 
+        description: `Could not fetch messages: ${error.message}. You may be offline or Firebase configuration is incorrect.`, 
+        variant: "destructive",
+        duration: 7000
+      });
     });
 
     return () => unsubscribeMessages();
@@ -284,7 +292,6 @@ export default function HomePage() {
     const currentAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "User";
     const currentUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl || undefined; 
 
-    // Handle global chat messages client-side for now
     if (conversationId === SHARED_CONVERSATION_ID) {
         const newMessage: Message = {
             id: uuidv4(),
@@ -297,7 +304,6 @@ export default function HomePage() {
             userAvatarUrl: currentUserAvatarUrl,
         };
         if (imageDataUri && type==='image') newMessage.fileUrl = imageDataUri;
-        // Add more properties for file if needed for global client-side
 
         setConversations(prev => prev.map(c => c.id === SHARED_CONVERSATION_ID ? {
             ...c,
@@ -306,7 +312,6 @@ export default function HomePage() {
             timestamp: new Date().toISOString(),
         }:c).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
 
-        // Simulate AI response for global chat
         setTimeout(async () => {
              try {
                 const chatHistoryForAI = conversations.find(c=>c.id === SHARED_CONVERSATION_ID)?.messages
@@ -387,7 +392,7 @@ export default function HomePage() {
     try {
       const finalMessageData = { ...messageData };
       if (!finalMessageData.text) finalMessageData.text = "";
-      if (!finalMessageData.fileUrl) finalMessageData.fileUrl = null; // Use null for Firestore
+      if (!finalMessageData.fileUrl) finalMessageData.fileUrl = null; 
       if (!finalMessageData.fileName) finalMessageData.fileName = null;
       if (!finalMessageData.duration) finalMessageData.duration = null;
 
@@ -395,7 +400,7 @@ export default function HomePage() {
       await updateDoc(conversationRef, { lastMessage: displayLastMessage, timestamp: serverTimestamp() });
       
       const currentConvo = conversations.find(c => c.id === conversationId);
-      if (type === 'text' && finalMessageData.sender === 'user' && currentConvo && !currentConvo.isSelfChat && currentConvo.isGroup) { // Only AI response for group chats for now
+      if (type === 'text' && finalMessageData.sender === 'user' && currentConvo && !currentConvo.isSelfChat && currentConvo.isGroup) { 
         const loadingAiMessageId = `metalai-loading-${Date.now()}`;
          setConversations(prevConvos =>
             prevConvos.map(convo => convo.id === conversationId ? { ...convo, messages: [...convo.messages, { id: loadingAiMessageId, text: "MetalAI is thinking...", sender: 'metalAI', timestamp: new Date().toISOString(), type: 'text', isLoading: true, userId: 'metalAI-bot', userDisplayName: 'MetalAI', userAvatarUrl: 'https://placehold.co/40x40.png?text=AI&bg=accent&fc=accent-foreground'}] } : convo)
@@ -419,37 +424,44 @@ export default function HomePage() {
       }
     } catch (error) {
       console.error("Error sending message:", error);
-      toast({ title: "Send Error", description: `Could not send message. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
+      const err = error as Error;
+      toast({ title: "Send Error", description: `Could not send message. ${err.message}. Check Firebase config.`, variant: "destructive", duration: 7000 });
     }
   }, [toast, conversations, clerkUserId, user, appUserProfile]); 
 
   const handleDeleteMessageForMe = async (conversationId: string, messageId: string) => {
-    if (!clerkUserId || conversationId === SHARED_CONVERSATION_ID) return; // No deletion for global chat messages
+    if (!clerkUserId || conversationId === SHARED_CONVERSATION_ID) return; 
     
     const messageRef = doc(db, "conversations", conversationId, "messages", messageId);
-    const messageDoc = await getDoc(messageRef);
-    if (!messageDoc.exists()) return;
+    try {
+        const messageDoc = await getDoc(messageRef);
+        if (!messageDoc.exists()) return;
 
-    const messageData = messageDoc.data();
-    const updatedDeletedForUserIds = Array.isArray(messageData.deletedForUserIds) 
-      ? [...messageData.deletedForUserIds, clerkUserId] 
-      : [clerkUserId];
-    
-    await updateDoc(messageRef, { deletedForUserIds: updatedDeletedForUserIds });
-    toast({ title: "Message Hidden", description: "The message is hidden in your view."});
+        const messageData = messageDoc.data();
+        const updatedDeletedForUserIds = Array.isArray(messageData.deletedForUserIds) 
+        ? [...messageData.deletedForUserIds, clerkUserId] 
+        : [clerkUserId];
+        
+        await updateDoc(messageRef, { deletedForUserIds: updatedDeletedForUserIds });
+        toast({ title: "Message Hidden", description: "The message is hidden in your view."});
+    } catch (error) {
+        console.error("Error deleting message for me:", error);
+        const err = error as Error;
+        toast({ title: "Error Hiding Message", description: err.message, variant: "destructive"});
+    }
   };
 
   const handleDeleteMessageForEveryone = async (conversationId: string, messageId: string) => {
     if (!conversationId || !messageId || !clerkUserId || conversationId === SHARED_CONVERSATION_ID) return;
     
     const messageRef = doc(db, "conversations", conversationId, "messages", messageId);
-    const messageSnap = await getDoc(messageRef);
-
-    if (!messageSnap.exists() || messageSnap.data()?.userId !== clerkUserId) {
-        toast({ title: "Deletion Failed", description: "You can only delete your own messages.", variant: "destructive" });
-        return;
-    }
+    
     try {
+      const messageSnap = await getDoc(messageRef);
+      if (!messageSnap.exists() || messageSnap.data()?.userId !== clerkUserId) {
+          toast({ title: "Deletion Failed", description: "You can only delete your own messages.", variant: "destructive" });
+          return;
+      }
       await updateDoc(messageRef, { text: "This message was deleted.", type: "text", fileUrl: null, fileName: null, duration: null, isDeleted: true });
       toast({ title: "Message Deleted", description: "The message has been deleted for everyone."});
       
@@ -461,7 +473,8 @@ export default function HomePage() {
        }
     } catch (error) {
       console.error("Error deleting message for everyone:", error);
-      toast({ title: "Deletion Error", variant: "destructive" });
+      const err = error as Error;
+      toast({ title: "Deletion Error", description: err.message, variant: "destructive" });
     }
   };
   
@@ -484,13 +497,11 @@ export default function HomePage() {
     const allMemberIds = [clerkUserId, ...selectedMembers.map(m => m.id)];
     const participantDetailsMap: { [userId: string]: ParticipantDetails } = {};
 
-    // Add creator details
     participantDetailsMap[clerkUserId] = { 
         displayName: creatorAppDisplayName, 
         avatarUrl: creatorAppAvatarUrl || undefined 
     };
 
-    // Add selected member details
     selectedMembers.forEach(member => {
         participantDetailsMap[member.id] = {
             displayName: member.displayName,
@@ -516,10 +527,11 @@ export default function HomePage() {
       await setDoc(newConversationRef, newConversationData);
       setSelectedConversationId(newConversationId);
       toast({ title: "Group Created", description: `Group "${groupName}" is ready.` });
-      setIsCreateGroupDialogOpen(false); // Close dialog on successful creation
+      setIsCreateGroupDialogOpen(false); 
     } catch (error) {
       console.error("Error creating group conversation:", error);
-      toast({ title: "Creation Error", description: "Could not create group conversation.", variant: "destructive" });
+      const err = error as Error;
+      toast({ title: "Creation Error", description: `Could not create group: ${err.message}`, variant: "destructive" });
     }
   };
 
@@ -529,7 +541,6 @@ export default function HomePage() {
       return;
     }
 
-    // Generate a consistent ID for 1-on-1 chats
     const ids = [clerkUserId, targetUser.id].sort();
     const chatID = ids.join('_');
     const chatDocRef = doc(db, "conversations", chatID);
@@ -537,11 +548,9 @@ export default function HomePage() {
     try {
         const docSnap = await getDoc(chatDocRef);
         if (docSnap.exists()) {
-            // Chat already exists, select it
             setSelectedConversationId(chatID);
             toast({ title: "Chat Opened", description: `Opened existing chat with ${targetUser.username || targetUser.primaryEmailAddress}.`});
         } else {
-            // Create new 1-on-1 chat
             const currentUserAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "Current User";
             const currentUserAppAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
             
@@ -556,8 +565,8 @@ export default function HomePage() {
 
             const newChatData = {
                 id: chatID,
-                name: `Chat with ${targetUserDetails.displayName}`, // Store a descriptive name
-                avatarUrl: targetUserDetails.avatarUrl || `https://placehold.co/100x100.png?text=${targetUserDetails.displayName?.[0]?.toUpperCase() || 'U'}`, // Other user's avatar
+                name: `Chat with ${targetUserDetails.displayName}`, 
+                avatarUrl: targetUserDetails.avatarUrl || `https://placehold.co/100x100.png?text=${targetUserDetails.displayName?.[0]?.toUpperCase() || 'U'}`, 
                 dataAiHint: "person direct",
                 lastMessage: "Chat started.",
                 timestamp: serverTimestamp(),
@@ -574,10 +583,11 @@ export default function HomePage() {
             setSelectedConversationId(chatID);
             toast({ title: "Chat Started!", description: `You can now chat with ${targetUserDetails.displayName}.`});
         }
-        setIsAddFriendDialogOpen(false); // Close dialog
+        setIsAddFriendDialogOpen(false); 
     } catch (error) {
         console.error("Error starting 1-on-1 chat:", error);
-        toast({ title: "Chat Error", description: "Could not start or open chat.", variant: "destructive" });
+        const err = error as Error;
+        toast({ title: "Chat Error", description: `Could not start chat: ${err.message}. Check Firebase config.`, variant: "destructive", duration: 7000 });
     }
   };
 
@@ -589,7 +599,7 @@ export default function HomePage() {
   };
 
   const handleAddMembersToGroup = async (conversationId: string, membersToAdd: Array<{ id: string; displayName: string; avatarUrl?: string }>) => {
-    if (!clerkUserId) return;
+    if (!clerkUserId || !user) return;
     const conversationRef = doc(db, "conversations", conversationId);
     
     const newMemberIds = membersToAdd.map(m => m.id);
@@ -600,27 +610,27 @@ export default function HomePage() {
             avatarUrl: member.avatarUrl || undefined,
         };
     });
+    
+    const adderName = appUserProfile?.displayName || user.username || "Someone";
 
     try {
         await updateDoc(conversationRef, {
             members: arrayUnion(...newMemberIds),
             ...newParticipantDetailsUpdates,
-            // Optional: Add a system message or update lastMessage
-            lastMessage: `${appUserProfile?.displayName || user?.username} added ${membersToAdd.length} new member(s).`,
+            lastMessage: `${adderName} added ${membersToAdd.length} new member(s).`,
             timestamp: serverTimestamp(),
         });
-        // Optionally, send a system message to the chat
-        // addDoc(collection(db, "conversations", conversationId, "messages"), { ...system message data ... });
         toast({title: "Members Added", description: "Successfully added members to the group."});
     } catch (error) {
         console.error("Error adding members to group:", error);
-        toast({title: "Error", description: "Could not add members to the group.", variant: "destructive"});
-        throw error; // Re-throw to be caught by dialog
+        const err = error as Error;
+        toast({title: "Error Adding Members", description: `Could not add members: ${err.message}`, variant: "destructive"});
+        throw error; 
     }
   };
 
   const handleRemoveMemberFromGroup = async (conversationId: string, memberIdToRemove: string) => {
-     if (!clerkUserId) return;
+     if (!clerkUserId || !user) return;
     const conversationRef = doc(db, "conversations", conversationId);
     const conversationDoc = await getDoc(conversationRef);
     const currentConversationData = conversationDoc.data() as Conversation | undefined;
@@ -633,26 +643,29 @@ export default function HomePage() {
          toast({title: "Cannot Remove", description: "Group must have at least one member.", variant: "destructive"});
          throw new Error("Group must have at least one member.");
     }
-     if (memberIdToRemove === currentConversationData.createdBy && currentConversationData.members && currentConversationData.members.length <=1 ) { // Simplified rule for now
+     if (memberIdToRemove === currentConversationData.createdBy && currentConversationData.members && currentConversationData.members.length <=1 ) { 
          toast({title: "Cannot Remove", description: "The group creator cannot be removed if they are the last member.", variant: "destructive"});
          throw new Error("Creator cannot be removed if last member.");
      }
 
+    const removerName = appUserProfile?.displayName || user.username || "Someone";
+    const removedMemberName = currentConversationData.participantDetails?.[memberIdToRemove]?.displayName || 'A member';
 
     const updates: any = {
         members: arrayRemove(memberIdToRemove),
         [`participantDetails.${memberIdToRemove}`]: deleteField(),
-        lastMessage: `${currentConversationData.participantDetails?.[memberIdToRemove]?.displayName || 'A member'} was removed.`,
+        lastMessage: `${removerName} removed ${removedMemberName}.`,
         timestamp: serverTimestamp(),
     };
 
     try {
         await updateDoc(conversationRef, updates);
-        toast({title: "Member Removed", description: "Successfully removed member from the group."});
+        toast({title: "Member Removed", description: `Successfully removed ${removedMemberName} from the group.`});
     } catch (error) {
         console.error("Error removing member from group:", error);
-        toast({title: "Error", description: "Could not remove member from the group.", variant: "destructive"});
-        throw error; // Re-throw to be caught by dialog
+        const err = error as Error;
+        toast({title: "Error Removing Member", description: `Could not remove member: ${err.message}`, variant: "destructive"});
+        throw error; 
     }
   };
 
@@ -698,13 +711,12 @@ export default function HomePage() {
               currentUserId={clerkUserId}
               onDeleteMessageForMe={handleDeleteMessageForMe}
               onDeleteMessageForEveryone={handleDeleteMessageForEveryone}
-              // For mobile sheet
               allConversationsForSheet={conversations}
               onSelectConversationForSheet={handleSelectConversation}
               onOpenCreateGroupDialogForSheet={() => setIsCreateGroupDialogOpen(true)}
               onOpenAddFriendDialogForSheet={() => setIsAddFriendDialogOpen(true)}
               appUserProfileForSheet={appUserProfile}
-              onOpenManageMembersDialogForSheet={handleOpenManageMembersDialog} // New prop
+              onOpenManageMembersDialogForSheet={handleOpenManageMembersDialog} 
             />
           </TabsContent>
           <TabsContent value="ideas" className="flex-1 overflow-y-auto p-4">
@@ -720,17 +732,17 @@ export default function HomePage() {
             currentUserId={clerkUserId}
         />
       )}
-      {clerkUserId && (
+      {clerkUserId && user && (
         <CreateGroupDialog
             isOpen={isCreateGroupDialogOpen}
             onOpenChange={setIsCreateGroupDialogOpen}
             onCreateGroup={handleCreateNewGroupConversation}
             currentUserId={clerkUserId}
             allConversations={conversations}
-            currentUserAppProfile={appUserProfile}
+            currentUserAppProfile={appUserProfile || {displayName: user.fullName || user.username || "You", photoURL: user.imageUrl}}
         />
       )}
-      {clerkUserId && conversationToManage && (
+      {clerkUserId && conversationToManage && user && (
         <ManageGroupMembersDialog
             isOpen={isManageMembersDialogOpen}
             onOpenChange={setIsManageMembersDialogOpen}
@@ -744,4 +756,3 @@ export default function HomePage() {
     </div>
   );
 }
-
