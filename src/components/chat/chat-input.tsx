@@ -12,7 +12,7 @@ import { playSendSound, initTone, addToneStartListener } from '@/lib/sounds';
 import type { Message, Idea } from '@/types/chat';
 import { metalAIImageGenerate } from '@/ai/flows/metalai-image-gen-flow';
 import { Textarea } from '@/components/ui/textarea';
-import { cn } from "@/lib/utils"; // Added missing import
+import { cn } from "@/lib/utils";
 
 interface ChatInputProps {
   onSendMessage: (
@@ -44,7 +44,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
   const audioChunksRef = useRef<Blob[]>([]);
   const [recordingTime, setRecordingTime] = useState(0);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null); // null: unknown, true: granted, false: denied
+  const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 
@@ -53,7 +53,6 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     initializeAudio();
     const removeListeners = addToneStartListener();
 
-    // Check initial microphone permission
     if (typeof navigator !== "undefined" && navigator.permissions) {
         navigator.permissions.query({ name: 'microphone' as PermissionName }).then(permissionStatus => {
         setHasMicPermission(permissionStatus.state === 'granted');
@@ -64,7 +63,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
             setHasMicPermission(null); 
         });
     } else {
-        setHasMicPermission(null); // Permissions API not available
+        setHasMicPermission(null);
     }
     
     return removeListeners;
@@ -75,9 +74,11 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
       toast({ title: "Error", description: "No conversation selected or user not identified.", variant: "destructive" });
       return;
     }
-    if (!messageText.trim()) return;
+    if (!messageText.trim() && !audioBlob) return; // Allow sending if only audio is present
     
-    onSendMessage(conversationId, messageText, 'text');
+    if (messageText.trim()) {
+        onSendMessage(conversationId, messageText, 'text');
+    }
     setMessageText("");
     playSendSound();
     if (textareaRef.current) textareaRef.current.focus();
@@ -131,7 +132,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
       onSendMessage(conversationId, file.name, fileType, file);
       playSendSound();
     }
-    if(fileInputRef.current) fileInputRef.current.value = ""; // Reset file input
+    if(fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const triggerFileInput = (acceptType: string = "image/*,audio/*,video/*") => {
@@ -163,7 +164,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
 
       mediaRecorderRef.current.onstop = () => {
         if (audioChunksRef.current.length > 0) {
-            const audioBlobData = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // or audio/ogg; codecs=opus
+            const audioBlobData = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             setAudioBlob(audioBlobData);
             const url = URL.createObjectURL(audioBlobData);
             setAudioUrl(url);
@@ -186,7 +187,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     } catch (err) {
       console.error("Error starting recording:", err);
       setHasMicPermission(false);
-      toast({ title: "Microphone Error", description: "Could not access microphone. Please check permissions in your browser settings.", variant: "destructive"});
+      toast({ title: "Microphone Error", description: "Could not access microphone. Please check permissions.", variant: "destructive"});
     }
   };
 
@@ -229,15 +230,17 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
             reader.onload = (e) => {
               if (e.target?.result && typeof e.target.result === 'string') {
                  onSendMessage(conversationId, `Pasted Image ${new Date().toISOString()}.png`, 'image', undefined, e.target.result);
+                 playSendSound();
                  toast({ title: "Image Pasted", description: "Pasted image sent."});
               }
             };
             reader.readAsDataURL(blob);
-            break; 
+            return; // Handle first image found and exit
           }
         }
       }
     }
+    // If no image was pasted, allow default text paste behavior (no event.preventDefault())
   }, [conversationId, onSendMessage, currentUserId, toast]);
 
 
@@ -273,7 +276,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
           </div>
         )}
 
-        <div className="flex items-end gap-2"> {/* items-end for textarea auto-height */}
+        <div className="flex items-end gap-2">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-accent-foreground self-end mb-1" disabled={isRecording || isGeneratingImage || !conversationId}>
@@ -314,18 +317,15 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
 
           <Textarea
             ref={textareaRef}
-            placeholder={isRecording ? "Recording audio..." : (hasMicPermission === false ? "Mic disabled. Type..." : "Type a message to MetalChat...")}
+            placeholder={isRecording ? "Recording audio..." : (hasMicPermission === false ? "Mic disabled. Type..." : "Type a message or paste an image...")}
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
             onPaste={handlePaste}
-            className="flex-1 rounded-lg px-4 py-2 bg-input focus-visible:ring-accent min-h-[40px] max-h-[120px] resize-none" // Adjust min/max height as needed
-            rows={1} // Start with 1 row, will auto-expand
+            className="flex-1 rounded-lg px-4 py-2 bg-input focus-visible:ring-accent min-h-[40px] max-h-[120px] resize-none"
+            rows={1}
             disabled={isGeneratingImage || isRecording || !!audioUrl || !conversationId}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && messageText.trim() && !isRecording && !audioUrl) {
-                e.preventDefault(); 
-                handleSendMessageClick();
-              }
+              // Removed Enter key send functionality
             }}
           />
           <Button 
@@ -378,3 +378,4 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     </>
   );
 }
+
