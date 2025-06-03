@@ -4,7 +4,7 @@
 import type { Conversation } from "@/types/chat";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-import { Settings, TvMinimalPlay, ChevronLeft, LogOut } from "lucide-react"; 
+import { Settings, TvMinimalPlay, Menu, LogOut } from "lucide-react"; // Changed ChevronLeft to Menu
 import SummarizeChatButton from "./summarize-chat-button";
 import Link from "next/link";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -55,17 +55,17 @@ export default function ChatHeader({
   return (
     <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-background/80 backdrop-blur-md z-10">
       <div className="flex items-center gap-2">
-        {isMobile && mobileSheetConversations && mobileSheetOnSelectConvo && mobileSheetOnCreateConvo && mobileSheetCurrentUserId && mobileSheetOnOpenAddFriendDialog && (
+        {isMobile && mobileSheetOnSelectConvo && mobileSheetOnCreateConvo && mobileSheetCurrentUserId && mobileSheetOnOpenAddFriendDialog && (
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="md:hidden">
-                <ChevronLeft className="h-5 w-5" />
+                <Menu className="h-5 w-5" /> {/* Changed icon here */}
                 <span className="sr-only">Open navigation</span>
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="p-0 w-full max-w-xs bg-sidebar text-sidebar-foreground">
                <ChatSidebar
-                  conversations={mobileSheetConversations}
+                  conversations={mobileSheetConversations || []} // Pass empty array if undefined
                   selectedConversationId={mobileSheetSelectedConvoId}
                   onSelectConversation={mobileSheetOnSelectConvo}
                   onCreateConversation={mobileSheetOnCreateConvo}
