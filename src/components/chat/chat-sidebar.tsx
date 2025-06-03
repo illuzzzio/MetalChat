@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Conversation } from "@/types/chat";
@@ -6,12 +7,23 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { MessageSquareText, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import React, { useState, useEffect } from "react";
 
 interface ChatSidebarProps {
   conversations: Conversation[];
   selectedConversationId: string | null;
   onSelectConversation: (id: string) => void;
 }
+
+const ClientFormattedTime = ({ timestamp }: { timestamp: string }) => {
+  const [formattedTime, setFormattedTime] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFormattedTime(new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  }, [timestamp]);
+
+  return <>{formattedTime || ""}</>; // Render empty string initially or while loading
+};
 
 export default function ChatSidebar({
   conversations,
@@ -54,7 +66,7 @@ export default function ChatSidebar({
                   <p className="text-xs text-muted-foreground truncate font-body">{convo.lastMessage}</p>
                 </div>
                 <span className="text-xs text-muted-foreground ml-2">
-                  {new Date(convo.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  <ClientFormattedTime timestamp={convo.timestamp} />
                 </span>
               </button>
             ))}
