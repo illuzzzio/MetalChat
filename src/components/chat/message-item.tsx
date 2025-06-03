@@ -4,8 +4,9 @@
 import type { Message } from "@/types/chat";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { User, Bot, Brain } from "lucide-react"; 
+import { User, Bot, Brain, FileAudio } from "lucide-react"; 
 import Image from "next/image";
+import React, { useRef, useEffect, useState } from 'react';
 
 interface MessageItemProps {
   message: Message;
@@ -25,6 +26,17 @@ export default function MessageItem({ message }: MessageItemProps) {
   const isUser = message.sender === "user";
   const isMetalAI = message.sender === "metalAI";
   
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [formattedDuration, setFormattedDuration] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (message.type === 'audio' && message.duration) {
+      const minutes = Math.floor(message.duration / 60);
+      const seconds = message.duration % 60;
+      setFormattedDuration(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+    }
+  }, [message.type, message.duration]);
+  
   let avatarInitial = "O";
   let avatarSrc = `https://placehold.co/40x40.png?text=O`;
   let avatarAlt = "Other User";
@@ -37,7 +49,6 @@ export default function MessageItem({ message }: MessageItemProps) {
     aiHint = "profile user";
   } else if (isMetalAI) {
     avatarInitial = "AI";
-    // avatarSrc is handled by direct SVG rendering below
     avatarAlt = "MetalAI";
     aiHint = "robot ai";
   }
@@ -77,23 +88,40 @@ export default function MessageItem({ message }: MessageItemProps) {
         {message.isLoading ? (
           <p className="text-sm font-body italic animate-pulse">{message.text}</p>
         ) : message.type === "text" ? (
-          <p className="text-sm font-body">{message.text}</p>
+          <p className="text-sm font-body whitespace-pre-wrap">{message.text}</p>
         ) : message.type === "image" && message.fileUrl ? (
-          <Image
-            src={message.fileUrl} // Handles both regular URLs and data URIs
-            alt={message.fileName || "Shared image"}
-            width={200} // Adjust as needed
-            height={150} // Adjust as needed
-            className="rounded-md object-cover"
-            data-ai-hint={message.sender === 'metalAI' ? 'ai generated' : 'chat image'}
-            unoptimized={message.fileUrl.startsWith('data:image')} // Important for data URIs
-          />
-        ) : (message.type === "audio" || message.type === "video") && message.fileName ? (
-           <p className="text-sm font-body italic">
-             [{message.type === "audio" ? "Audio" : "Video"}: {message.fileName}]
-             {message.type === "video" && <span className="text-xs block">(Preview only, real-time sharing not fully implemented)</span>}
-           </p>
-        ) : null }
+          <div>
+            <Image
+              src={message.fileUrl} 
+              alt={message.fileName || "Shared image"}
+              width={200} 
+              height={150} 
+              className="rounded-md object-cover"
+              data-ai-hint={message.sender === 'metalAI' ? 'ai generated' : 'chat image'}
+              unoptimized={message.fileUrl.startsWith('data:image') || message.fileUrl.startsWith('blob:')} 
+            />
+            {message.text && message.text !== message.fileName && <p className="text-xs mt-1 opacity-80">{message.text}</p>}
+          </div>
+        ) : message.type === "audio" && message.fileUrl ? (
+          <div className="flex flex-col items-start">
+             <div className="flex items-center gap-2 mb-1">
+                <FileAudio className="w-5 h-5 text-muted-foreground" />
+                <span className="text-sm font-medium">{message.fileName || "Audio Message"}</span>
+             </div>
+            <audio ref={audioRef} src={message.fileUrl} controls className="max-w-full h-10" />
+            {formattedDuration && <p className="text-xs text-muted-foreground/80 mt-1">Duration: {formattedDuration}</p>}
+             {message.sender === 'user' && <p className="text-xs text-muted-foreground/70 mt-1">(Local preview. Others may not be able to play this audio.)</p>}
+          </div>
+        ) : message.type === "video" && message.fileUrl ? (
+           <div>
+            <video src={message.fileUrl} controls width="200" className="rounded-md" />
+             {message.fileName && <p className="text-xs mt-1 opacity-80">{message.fileName}</p>}
+             {message.sender === 'user' && <p className="text-xs text-muted-foreground/70 mt-1">(Local preview. Others may not be able to play this video.)</p>}
+           </div>
+        ) : (
+          // Fallback for unknown types or missing data
+          <p className="text-sm font-body italic">{message.text || "Unsupported message type"}</p>
+        )}
         <p className="text-xs text-muted-foreground/80 mt-1 text-right">
           {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </p>

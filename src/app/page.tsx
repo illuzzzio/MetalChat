@@ -4,14 +4,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import ChatSidebar from "@/components/chat/chat-sidebar";
 import ChatArea from "@/components/chat/chat-area";
-import type { Conversation, Message } from "@/types/chat";
+import IdeaList from "@/components/idea-storage/idea-list";
+import type { Conversation, Message, Idea } from "@/types/chat";
 import { initTone, addToneStartListener } from '@/lib/sounds';
-import { db } from '@/lib/firebase'; // Firebase setup
+import { db } from '@/lib/firebase'; 
 import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { metalAIChat } from '@/ai/flows/metalai-chat-flow';
 import { useToast } from '@/hooks/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MessageSquare, Lightbulb } from 'lucide-react';
 
-// For simplicity, using a single hardcoded conversation ID for real-time demo
 const SHARED_CONVERSATION_ID = "global-chat";
 
 const initialGlobalConversation: Conversation = {
@@ -27,6 +29,7 @@ const initialGlobalConversation: Conversation = {
 export default function HomePage() {
   const [conversations, setConversations] = useState<Conversation[]>([initialGlobalConversation]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(SHARED_CONVERSATION_ID);
+  const [storedIdeas, setStoredIdeas] = useState<Idea[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -38,7 +41,6 @@ export default function HomePage() {
     return removeListeners;
   }, []);
 
-  // Subscribe to Firestore messages for the selected conversation
   useEffect(() => {
     if (!selectedConversationId) return;
 
@@ -57,6 +59,7 @@ export default function HomePage() {
           type: data.type,
           fileUrl: data.fileUrl,
           fileName: data.fileName,
+          duration: data.duration,
         });
       });
 
@@ -75,61 +78,73 @@ export default function HomePage() {
     return () => unsubscribe();
   }, [selectedConversationId, toast]);
 
-
   const handleSelectConversation = (id: string) => {
     setSelectedConversationId(id);
   };
 
-  const handleSendMessage = useCallback(async (conversationId: string, text: string, type: Message['type'] = 'text', file?: File, imageDataUri?: string) => {
+  const handleAddIdea = (idea: Idea) => {
+    setStoredIdeas(prevIdeas => [idea, ...prevIdeas].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+  };
+
+  const handleSendMessage = useCallback(async (
+    conversationId: string, 
+    text: string, 
+    type: Message['type'] = 'text', 
+    file?: File, 
+    imageDataUri?: string,
+    duration?: number
+  ) => {
     if (!conversationId) return;
 
     const messagesRef = collection(db, "conversations", conversationId, "messages");
 
     const messageDataToStore: {
-      text: string;
       sender: 'user';
       type: Message['type'];
-      timestamp: any; // Firestore ServerTimestampPlaceholder
+      timestamp: any; 
+      text: string;
       fileUrl?: string;
       fileName?: string;
+      duration?: number;
     } = {
       sender: 'user',
       type,
       timestamp: serverTimestamp(),
-      text: '', // Will be definitively set below
+      text: '', 
     };
 
     if (type === 'text') {
       messageDataToStore.text = text;
-      // For text messages, fileUrl and fileName are not applicable and will be omitted.
     } else { // For media types: 'image', 'video', 'audio'
-      const url = imageDataUri || (file ? URL.createObjectURL(file) : undefined);
+      let url: string | undefined = imageDataUri; // AI generated image
+      if (file) { // User uploaded file
+        url = URL.createObjectURL(file); // Create local blob URL for preview
+      }
+      
       if (url) {
         messageDataToStore.fileUrl = url;
       }
 
-      if (imageDataUri && type === 'image') {
-        // For AI-generated images, 'text' is the prompt passed to handleSendMessage
+      if (imageDataUri && type === 'image') { // AI-generated image (already handled by IdeaStorage, this case might be for future direct send)
         messageDataToStore.fileName = 'AI Generated Image';
-        messageDataToStore.text = `AI Image: ${text.substring(0,100)}${text.length > 100 ? '...' : ''}`; // Use prompt as text
+        messageDataToStore.text = `AI Image: ${text.substring(0,100)}${text.length > 100 ? '...' : ''}`;
       } else if (file) {
         messageDataToStore.fileName = file.name;
-        messageDataToStore.text = file.name; // Use file name as the message text for actual files
+        messageDataToStore.text = file.name; 
+        if (type === 'audio' && duration) {
+            messageDataToStore.duration = duration;
+        }
       } else {
-        // Media type, but no specific file or imageDataUri was provided or successfully generated
-        // 'text' (the original input string to handleSendMessage) serves as the description or fallback.
         messageDataToStore.text = text || 'Shared Media File';
-        // fileName remains omitted if no file or AI image context.
       }
-      // Ensure text has a fallback for media messages if it somehow wasn't set
+      
       if (!messageDataToStore.text) {
         messageDataToStore.text = 'Media Content';
       }
     }
 
     try {
-      // Firestore SDK will omit fields that are undefined in messageDataToStore
-      const userMessageDocRef = await addDoc(messagesRef, messageDataToStore);
+      await addDoc(messagesRef, messageDataToStore);
       
       if (type === 'text' && messageDataToStore.sender === 'user') {
         const loadingAiMessageId = `metalai-loading-${Date.now()}`;
@@ -203,12 +218,26 @@ export default function HomePage() {
             timestamp: serverTimestamp(),
           });
         }
-      } else if ((type === 'image' || type === 'video' || type === 'audio') && !imageDataUri) {
+      } else if ((type === 'image' || type === 'video' || type === 'audio') && file) {
          if(type === 'video' && file){
              toast({
-                title: "Video Handling",
-                description: `"${file.name}" is shown locally. Real-time video sharing requires backend upload, which is not fully implemented in this version.`,
-                duration: 5000,
+                title: "Video Upload",
+                description: `"${file.name}" is shown locally. Real-time video sharing for others requires backend upload, which is not fully implemented in this version.`,
+                duration: 7000,
+             });
+         }
+         if(type === 'audio' && file){
+             toast({
+                title: "Audio Recording Sent",
+                description: `"${file.name}" sent as a local preview. For others to hear it, backend upload is needed (not fully implemented).`,
+                duration: 7000,
+             });
+         }
+          if(type === 'image' && file){
+             toast({
+                title: "Image Upload",
+                description: `"${file.name}" is shown locally. Real-time image sharing for others requires backend upload, which is not fully implemented in this version.`,
+                duration: 7000,
              });
          }
       }
@@ -231,10 +260,24 @@ export default function HomePage() {
         />
       </div>
       <div className="flex-1 h-full">
-        <ChatArea
-          conversation={selectedConversation}
-          onSendMessage={handleSendMessage}
-        />
+        <Tabs defaultValue="chat" className="h-full flex flex-col">
+          <div className="p-2 border-b">
+            <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-flex">
+              <TabsTrigger value="chat"><MessageSquare className="w-4 h-4 mr-2"/>Chat</TabsTrigger>
+              <TabsTrigger value="ideas"><Lightbulb className="w-4 h-4 mr-2"/>Idea Storage ({storedIdeas.length})</TabsTrigger>
+            </TabsList>
+          </div>
+          <TabsContent value="chat" className="flex-1 overflow-hidden flex flex-col">
+            <ChatArea
+              conversation={selectedConversation}
+              onSendMessage={handleSendMessage}
+              onAddIdea={handleAddIdea}
+            />
+          </TabsContent>
+          <TabsContent value="ideas" className="flex-1 overflow-y-auto p-4">
+             <IdeaList ideas={storedIdeas} />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

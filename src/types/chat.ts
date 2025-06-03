@@ -7,6 +7,7 @@ export interface Message {
   fileUrl?: string;
   fileName?: string;
   isLoading?: boolean; // For AI responses or file uploads
+  duration?: number; // For audio recordings
 }
 
 export interface Conversation {
@@ -16,4 +17,11 @@ export interface Conversation {
   lastMessage: string;
   timestamp: string; // Should be Firestore Timestamp
   messages: Message[];
+}
+
+export interface Idea {
+  id: string;
+  prompt: string;
+  imageDataUri: string;
+  timestamp: string;
 }

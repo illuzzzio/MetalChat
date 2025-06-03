@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Conversation, Message } from "@/types/chat";
+import type { Conversation, Message, Idea } from "@/types/chat";
 import ChatHeader from "./chat-header";
 import ChatMessages from "./chat-messages";
 import ChatInput from "./chat-input";
@@ -18,11 +18,13 @@ interface ChatAreaProps {
     text: string,
     type?: Message['type'],
     file?: File,
-    imageDataUri?: string
+    imageDataUri?: string,
+    duration?: number,
   ) => void;
+  onAddIdea: (idea: Idea) => void;
 }
 
-export default function ChatArea({ conversation, onSendMessage }: ChatAreaProps) {
+export default function ChatArea({ conversation, onSendMessage, onAddIdea }: ChatAreaProps) {
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const { toast } = useToast();
@@ -35,7 +37,7 @@ export default function ChatArea({ conversation, onSendMessage }: ChatAreaProps)
 
     setIsSummaryLoading(true);
     const chatLog = conversation.messages
-      .filter(msg => !msg.isLoading) // Exclude loading messages from summary
+      .filter(msg => !msg.isLoading) 
       .map(msg => `${msg.sender === 'user' ? 'User' : (msg.sender === 'metalAI' ? 'MetalAI' : 'Other')}: ${msg.text}${msg.fileName ? ` [File: ${msg.fileName}]` : ''}`)
       .join('\n');
     
@@ -64,8 +66,11 @@ export default function ChatArea({ conversation, onSendMessage }: ChatAreaProps)
       {conversation ? (
         <>
           <ChatMessages messages={conversation.messages} />
-          {/* Pass conversation.id to ChatInput for its onSendMessage calls */}
-          <ChatInput onSendMessage={onSendMessage} conversationId={conversation.id} />
+          <ChatInput 
+            onSendMessage={onSendMessage} 
+            conversationId={conversation.id}
+            onAddIdea={onAddIdea}
+          />
         </>
       ) : (
         <div className="flex-1 flex items-center justify-center">
