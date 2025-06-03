@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -17,6 +18,7 @@ const initialGlobalConversation: Conversation = {
   id: SHARED_CONVERSATION_ID,
   name: "Global MetalAI Chat",
   avatarUrl: "https://placehold.co/100x100.png?text=GC",
+  dataAiHint: "group chat",
   lastMessage: "Welcome to the global chat!",
   timestamp: new Date().toISOString(),
   messages: [],
@@ -83,21 +85,53 @@ export default function HomePage() {
 
     const messagesRef = collection(db, "conversations", conversationId, "messages");
 
-    const userMessageData: Omit<Message, 'id' | 'timestamp'> & { timestamp: any } = {
-      text: type === 'text' ? text : (file?.name || 'Shared Media'),
+    const messageDataToStore: {
+      text: string;
+      sender: 'user';
+      type: Message['type'];
+      timestamp: any; // Firestore ServerTimestampPlaceholder
+      fileUrl?: string;
+      fileName?: string;
+    } = {
       sender: 'user',
       type,
-      fileUrl: type !== 'text' ? (imageDataUri || (file ? URL.createObjectURL(file) : undefined)) : undefined, // Use imageDataUri if provided (for AI images)
-      fileName: file?.name || (type === 'image' && !file ? 'AI Generated Image' : text),
-      timestamp: serverTimestamp(), // Use Firestore server timestamp
+      timestamp: serverTimestamp(),
+      text: '', // Will be definitively set below
     };
 
+    if (type === 'text') {
+      messageDataToStore.text = text;
+      // For text messages, fileUrl and fileName are not applicable and will be omitted.
+    } else { // For media types: 'image', 'video', 'audio'
+      const url = imageDataUri || (file ? URL.createObjectURL(file) : undefined);
+      if (url) {
+        messageDataToStore.fileUrl = url;
+      }
+
+      if (imageDataUri && type === 'image') {
+        // For AI-generated images, 'text' is the prompt passed to handleSendMessage
+        messageDataToStore.fileName = 'AI Generated Image';
+        messageDataToStore.text = `AI Image: ${text.substring(0,100)}${text.length > 100 ? '...' : ''}`; // Use prompt as text
+      } else if (file) {
+        messageDataToStore.fileName = file.name;
+        messageDataToStore.text = file.name; // Use file name as the message text for actual files
+      } else {
+        // Media type, but no specific file or imageDataUri was provided or successfully generated
+        // 'text' (the original input string to handleSendMessage) serves as the description or fallback.
+        messageDataToStore.text = text || 'Shared Media File';
+        // fileName remains omitted if no file or AI image context.
+      }
+      // Ensure text has a fallback for media messages if it somehow wasn't set
+      if (!messageDataToStore.text) {
+        messageDataToStore.text = 'Media Content';
+      }
+    }
+
     try {
-      const userMessageDocRef = await addDoc(messagesRef, userMessageData);
+      // Firestore SDK will omit fields that are undefined in messageDataToStore
+      const userMessageDocRef = await addDoc(messagesRef, messageDataToStore);
       
-      // If it's a text message from the user, trigger MetalAI response
-      if (type === 'text' && userMessageData.sender === 'user') {
-        // Add a temporary loading message for AI
+      if (type === 'text' && messageDataToStore.sender === 'user') {
         const loadingAiMessageId = `metalai-loading-${Date.now()}`;
          setConversations(prevConvos =>
             prevConvos.map(convo => {
@@ -122,16 +156,14 @@ export default function HomePage() {
           const currentConvo = conversations.find(c => c.id === conversationId);
           const chatHistoryForAI = currentConvo?.messages
             .filter(msg => !msg.isLoading && (msg.sender === 'user' || msg.sender === 'metalAI') && msg.type === 'text')
-            .slice(-10) // Get last 10 messages for history
+            .slice(-10) 
             .map(msg => ({
               role: msg.sender === 'user' ? 'user' : 'model' as 'user' | 'model',
               parts: [{ text: msg.text }]
             })) || [];
 
-
           const aiResponse = await metalAIChat({ userInput: text, chatHistory: chatHistoryForAI });
           
-          // Remove loading message
           setConversations(prevConvos =>
             prevConvos.map(convo => {
               if (convo.id === conversationId) {
@@ -153,7 +185,6 @@ export default function HomePage() {
         } catch (aiError) {
           console.error("MetalAI chat error:", aiError);
           toast({ title: "MetalAI Error", description: "MetalAI could not respond.", variant: "destructive" });
-           // Remove loading message on error
            setConversations(prevConvos =>
             prevConvos.map(convo => {
               if (convo.id === conversationId) {
@@ -173,10 +204,6 @@ export default function HomePage() {
           });
         }
       } else if ((type === 'image' || type === 'video' || type === 'audio') && !imageDataUri) {
-        // This is a user file upload. In a real app, upload to Firebase Storage here.
-        // For now, it's just added to Firestore with a local blob URL if 'file' exists.
-        // The 'fileUrl' in userMessageData already has URL.createObjectURL(file)
-        // Or if it's an AI generated image, imageDataUri will be set and used.
          if(type === 'video' && file){
              toast({
                 title: "Video Handling",
@@ -188,9 +215,9 @@ export default function HomePage() {
 
     } catch (error) {
       console.error("Error sending message:", error);
-      toast({ title: "Send Error", description: "Could not send message.", variant: "destructive" });
+      toast({ title: "Send Error", description: `Could not send message. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
     }
-  }, [toast, conversations]); // Added conversations to dependency array for chatHistoryForAI
+  }, [toast, conversations]); 
   
   const selectedConversation = conversations.find(c => c.id === selectedConversationId) || null;
 
@@ -198,7 +225,7 @@ export default function HomePage() {
     <div className="flex h-screen w-screen overflow-hidden antialiased text-foreground bg-background">
       <div className="w-full md:w-1/4 lg:w-1/5 max-w-xs hidden md:block h-full shrink-0">
         <ChatSidebar
-          conversations={conversations} // Already sorted by onSnapshot update
+          conversations={conversations} 
           selectedConversationId={selectedConversationId}
           onSelectConversation={handleSelectConversation}
         />
