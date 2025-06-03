@@ -12,6 +12,7 @@ import { playSendSound, initTone, addToneStartListener } from '@/lib/sounds';
 import type { Message, Idea } from '@/types/chat';
 import { metalAIImageGenerate } from '@/ai/flows/metalai-image-gen-flow';
 import { Textarea } from '@/components/ui/textarea';
+import { cn } from "@/lib/utils"; // Added missing import
 
 interface ChatInputProps {
   onSendMessage: (
@@ -53,14 +54,18 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     const removeListeners = addToneStartListener();
 
     // Check initial microphone permission
-    navigator.permissions?.query({ name: 'microphone' as PermissionName }).then(permissionStatus => {
-      setHasMicPermission(permissionStatus.state === 'granted');
-      permissionStatus.onchange = () => {
+    if (typeof navigator !== "undefined" && navigator.permissions) {
+        navigator.permissions.query({ name: 'microphone' as PermissionName }).then(permissionStatus => {
         setHasMicPermission(permissionStatus.state === 'granted');
-      };
-    }).catch(() => {
-        setHasMicPermission(null); 
-    });
+        permissionStatus.onchange = () => {
+            setHasMicPermission(permissionStatus.state === 'granted');
+        };
+        }).catch(() => {
+            setHasMicPermission(null); 
+        });
+    } else {
+        setHasMicPermission(null); // Permissions API not available
+    }
     
     return removeListeners;
   }, []);
@@ -141,7 +146,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
   }
 
   const startRecording = async () => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         toast({title: "Unsupported Browser", description: "Audio recording is not supported by your browser.", variant: "destructive"});
         setHasMicPermission(false);
         return;
