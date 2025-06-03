@@ -48,6 +48,7 @@ export interface UserProfile {
   clerkUserId: string; 
   displayName: string;
   photoURL?: string; 
+  hiddenConversationIds?: string[]; // Added to store IDs of hidden conversations
 }
 
 // For API responses from user search
@@ -57,3 +58,4 @@ export interface SearchedUser {
   primaryEmailAddress: string | undefined;
   imageUrl: string;
 }
+

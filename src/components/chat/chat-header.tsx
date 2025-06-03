@@ -4,7 +4,7 @@
 import type { Conversation, UserProfile } from "@/types/chat";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-import { Settings, TvMinimalPlay, Menu, Users as UsersIcon } from "lucide-react"; // Changed ChevronLeft to Menu, added UsersIcon
+import { Settings, TvMinimalPlay, Menu, Users as UsersIcon } from "lucide-react"; 
 import SummarizeChatButton from "./summarize-chat-button";
 import Link from "next/link";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -13,7 +13,7 @@ import {
   SheetContent,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import ChatSidebar from "./chat-sidebar"; // To render sidebar in sheet
+import ChatSidebar from "./chat-sidebar"; 
 import { UserButton } from "@clerk/nextjs";
 import { useToast } from "@/hooks/use-toast";
 import React from "react";
@@ -22,29 +22,29 @@ import React from "react";
 interface ChatHeaderProps {
   conversation: Conversation | null;
   onSummarize: () => void;
-  // Props for mobile sidebar sheet content
   conversations?: Conversation[]; 
   selectedConversationId?: string | null;
   onSelectConversation?: (id: string) => void;
   onOpenCreateGroupDialog?: () => void; 
   currentUserId?: string | null;
-  onOpenAddFriendDialog?: () => void;
+  onOpenFindUsersDialog?: () => void; // Renamed from onOpenAddFriendDialog
   appUserProfile?: UserProfile | null; 
-  onOpenManageMembersDialog?: (conversation: Conversation) => void; // New prop
+  onOpenManageMembersDialog?: (conversation: Conversation) => void; 
+  onHideConversation?: (conversationId: string) => void; // New prop for sheet
 }
 
 export default function ChatHeader({ 
   conversation, 
   onSummarize,
-  // For mobile sheet
   conversations: mobileSheetConversations,
   selectedConversationId: mobileSheetSelectedConvoId,
   onSelectConversation: mobileSheetOnSelectConvo,
   onOpenCreateGroupDialog: mobileSheetOnOpenCreateGroupDialog, 
   currentUserId: mobileSheetCurrentUserId,
-  onOpenAddFriendDialog: mobileSheetOnOpenAddFriendDialog,
+  onOpenFindUsersDialog: mobileSheetOnOpenFindUsersDialog, // Renamed
   appUserProfile: mobileSheetAppUserProfile,
-  onOpenManageMembersDialog // New prop
+  onOpenManageMembersDialog,
+  onHideConversation: mobileSheetOnHideConversation // New prop
 }: ChatHeaderProps) {
   const isMobile = useIsMobile();
   const { toast } = useToast();
@@ -57,7 +57,7 @@ export default function ChatHeader({
   return (
     <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-background/80 backdrop-blur-md z-10">
       <div className="flex items-center gap-2">
-        {isMobile && mobileSheetOnSelectConvo && mobileSheetOnOpenCreateGroupDialog && mobileSheetCurrentUserId && mobileSheetOnOpenAddFriendDialog && (
+        {isMobile && mobileSheetOnSelectConvo && mobileSheetOnOpenCreateGroupDialog && mobileSheetCurrentUserId && mobileSheetOnOpenFindUsersDialog && mobileSheetOnHideConversation && (
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="md:hidden">
@@ -72,8 +72,9 @@ export default function ChatHeader({
                   onSelectConversation={mobileSheetOnSelectConvo}
                   onOpenCreateGroupDialog={mobileSheetOnOpenCreateGroupDialog} 
                   currentUserId={mobileSheetCurrentUserId}
-                  onOpenAddFriendDialog={mobileSheetOnOpenAddFriendDialog}
+                  onOpenFindUsersDialog={mobileSheetOnOpenFindUsersDialog} // Renamed
                   appUserProfile={mobileSheetAppUserProfile} 
+                  onHideConversation={mobileSheetOnHideConversation} // Pass to sheet sidebar
                 />
             </SheetContent>
           </Sheet>
@@ -105,4 +106,3 @@ export default function ChatHeader({
     </div>
   );
 }
-

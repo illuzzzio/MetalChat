@@ -18,70 +18,101 @@ import { useToast } from '@/hooks/use-toast';
 import type { SearchedUser } from '@/types/chat';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from './ui/scroll-area';
-import { Loader2, UserPlus, MessageSquarePlus } from 'lucide-react';
+import { Loader2, Users, MessageSquarePlus, Search as SearchIcon } from 'lucide-react'; // Changed UserPlus to Users
 
-interface AddFriendDialogProps {
+interface FindUsersDialogProps { // Renamed props interface
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   onStartChatWithUser: (user: SearchedUser) => void;
   currentUserId: string | null;
 }
 
-export default function AddFriendDialog({ isOpen, onOpenChange, onStartChatWithUser, currentUserId }: AddFriendDialogProps) {
+export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithUser, currentUserId }: FindUsersDialogProps) { // Renamed component
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchedUser[]>([]);
+  const [allFetchedUsers, setAllFetchedUsers] = useState<SearchedUser[]>([]); // Store all initially fetched users
+  const [displayedUsers, setDisplayedUsers] = useState<SearchedUser[]>([]); // Users to display (filtered or all)
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const fetchUsers = useCallback(async (query?: string) => {
+    if (!currentUserId) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const fetchUrl = query ? `/api/users/search?query=${encodeURIComponent(query)}` : '/api/users/search';
+      const response = await fetch(fetchUrl);
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || `Search failed: ${response.statusText || response.status}`);
+      }
+
+      if (responseData && Array.isArray(responseData.users)) {
+        const users = responseData.users.filter((user: SearchedUser) => user.id !== currentUserId);
+        if (!query) { // If it was an initial fetch (no query)
+            setAllFetchedUsers(users);
+        }
+        setDisplayedUsers(users); // Always update displayed users
+      } else {
+        console.warn("Search API response OK, but `users` array is missing or not an array:", responseData);
+        setAllFetchedUsers([]);
+        setDisplayedUsers([]);
+        setError("Received an unexpected response from the server while searching for users.");
+      }
+    } catch (err) {
+      console.error("Failed to search users:", err);
+      const message = err instanceof Error ? err.message : "An unknown error occurred during user search.";
+      setError(message);
+      setAllFetchedUsers([]);
+      setDisplayedUsers([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentUserId]);
+
+  // Initial fetch when dialog opens
   useEffect(() => {
-    if (!isOpen) { 
+    if (isOpen && currentUserId) {
+      fetchUsers(); // Fetch all users initially
+    } else if (!isOpen) {
+      // Reset state when dialog closes
       setSearchQuery("");
-      setSearchResults([]);
+      setAllFetchedUsers([]);
+      setDisplayedUsers([]);
       setIsLoading(false);
       setError(null);
+    }
+  }, [isOpen, currentUserId, fetchUsers]);
+
+  // Handle search input changes
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (searchQuery.trim() === "") {
+        // If search is cleared, show all initially fetched users
+        setDisplayedUsers(allFetchedUsers.filter((user: SearchedUser) => user.id !== currentUserId));
+        setError(null);
+        return;
+    }
+    
+    if (searchQuery.trim().length < 2 && searchQuery.trim().length > 0) {
+      setDisplayedUsers([]); // Clear results for very short queries to avoid too many irrelevant results
+      setError("Please enter at least 2 characters to search.");
       return;
     }
 
-    if (searchQuery.trim().length < 2) {
-      setSearchResults([]);
-      setError(null);
-      return;
-    }
 
+    // Debounced search for specific queries
     const delayDebounceFn = setTimeout(async () => {
-      setIsLoading(true);
-      setError(null); // Clear previous errors at the start of a new search attempt
-      try {
-        const response = await fetch(`/api/users/search?query=${encodeURIComponent(searchQuery)}`);
-        const responseData = await response.json();
-
-        if (!response.ok) {
-          throw new Error(responseData.error || `Search failed: ${response.statusText || response.status}`);
+        if (searchQuery.trim().length >= 2) {
+             fetchUsers(searchQuery.trim());
         }
-
-        if (responseData && Array.isArray(responseData.users)) {
-          setSearchResults(responseData.users.filter((user: SearchedUser) => user.id !== currentUserId));
-        } else {
-          console.warn("Search API response OK, but `users` array is missing or not an array:", responseData);
-          setSearchResults([]);
-          // Consider setting a user-friendly error if the structure is unexpected but response was ok
-          setError("Received an unexpected response from the server while searching for users.");
-        }
-      } catch (err) {
-        console.error("Failed to search users (useEffect catch):", err);
-        const message = err instanceof Error ? err.message : "An unknown error occurred during user search.";
-        setError(message);
-        setSearchResults([]);
-        // Toast is shown when error state is updated and displayed in UI
-        // toast({ title: "Search Error", description: message, variant: "destructive" });
-      } finally {
-        setIsLoading(false);
-      }
-    }, 500); 
+    }, 500);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery, isOpen, toast, currentUserId]);
+  }, [searchQuery, isOpen, fetchUsers, allFetchedUsers, currentUserId]);
+
 
   const handleUserSelect = (user: SearchedUser) => {
     onStartChatWithUser(user);
@@ -92,22 +123,20 @@ export default function AddFriendDialog({ isOpen, onOpenChange, onStartChatWithU
     <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2"><UserPlus /> Add Friend / Start Chat</AlertDialogTitle>
+          <AlertDialogTitle className="flex items-center gap-2"><Users /> Find Users / Start New Chat</AlertDialogTitle> {/* Updated Title */}
           <AlertDialogDescription>
-            Search for users by username or email to start a new chat (min. 2 characters).
+            Search for users to start a new chat. All registered users are discoverable.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="py-4 space-y-4">
-          <div>
-            <Label htmlFor="search-query" className="sr-only">
-              Search by username or email
-            </Label>
+          <div className="relative">
+            <SearchIcon className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               id="search-query"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Enter username or email..."
-              className="w-full"
+              placeholder="Search by username or email..."
+              className="w-full pl-8"
             />
           </div>
           
@@ -122,10 +151,10 @@ export default function AddFriendDialog({ isOpen, onOpenChange, onStartChatWithU
             <p className="text-sm text-destructive text-center py-2">{error}</p>
           )}
 
-          {!isLoading && !error && searchResults.length > 0 && (
+          {!isLoading && !error && displayedUsers.length > 0 && (
             <ScrollArea className="h-[200px] border rounded-md">
               <div className="p-2 space-y-1">
-                {searchResults.map((user) => (
+                {displayedUsers.map((user) => (
                   <div
                     key={user.id}
                     className="flex items-center justify-between p-2 rounded-md hover:bg-muted transition-colors"
@@ -151,8 +180,10 @@ export default function AddFriendDialog({ isOpen, onOpenChange, onStartChatWithU
             </ScrollArea>
           )}
           
-          {!isLoading && !error && searchQuery.trim().length >=2 && searchResults.length === 0 && (
-             <p className="text-sm text-muted-foreground text-center py-2">No users found matching your query.</p>
+          {!isLoading && !error && displayedUsers.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-2">
+              {searchQuery.trim().length > 0 ? "No users found matching your query." : (allFetchedUsers.length > 0 ? "No users match your filter." : "No other users found.")}
+            </p>
           )}
 
         </div>

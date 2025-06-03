@@ -31,9 +31,10 @@ interface ChatAreaProps {
   allConversationsForSheet?: Conversation[];
   onSelectConversationForSheet?: (id: string) => void;
   onOpenCreateGroupDialogForSheet?: () => void; 
-  onOpenAddFriendDialogForSheet?: () => void;
+  onOpenFindUsersDialogForSheet?: () => void; // Renamed from onOpenAddFriendDialogForSheet
   appUserProfileForSheet?: UserProfile | null; 
-  onOpenManageMembersDialogForSheet?: (conversation: Conversation) => void; // New prop
+  onOpenManageMembersDialogForSheet?: (conversation: Conversation) => void;
+  onHideConversationForSheet?: (conversationId: string) => void; // New prop for hiding from sheet
 }
 
 export default function ChatArea({ 
@@ -46,9 +47,10 @@ export default function ChatArea({
     allConversationsForSheet,
     onSelectConversationForSheet,
     onOpenCreateGroupDialogForSheet, 
-    onOpenAddFriendDialogForSheet,
+    onOpenFindUsersDialogForSheet, // Renamed
     appUserProfileForSheet,
-    onOpenManageMembersDialogForSheet // New prop
+    onOpenManageMembersDialogForSheet,
+    onHideConversationForSheet // New prop
 }: ChatAreaProps) {
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -168,15 +170,15 @@ export default function ChatArea({
       <ChatHeader 
         conversation={conversation} 
         onSummarize={handleSummarizeChat}
-        // Pass sheet props
         conversations={allConversationsForSheet}
         selectedConversationId={conversation?.id}
         onSelectConversation={onSelectConversationForSheet}
         onOpenCreateGroupDialog={onOpenCreateGroupDialogForSheet} 
         currentUserId={currentUserId}
-        onOpenAddFriendDialog={onOpenAddFriendDialogForSheet}
+        onOpenFindUsersDialog={onOpenFindUsersDialogForSheet} // Renamed
         appUserProfile={appUserProfileForSheet} 
-        onOpenManageMembersDialog={onOpenManageMembersDialogForSheet} // Pass new prop
+        onOpenManageMembersDialog={onOpenManageMembersDialogForSheet} 
+        onHideConversation={onHideConversationForSheet} // Pass hide handler for sheet
       />
       
       {conversation ? (
@@ -229,4 +231,3 @@ export default function ChatArea({
     </div>
   );
 }
-

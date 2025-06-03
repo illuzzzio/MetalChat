@@ -6,13 +6,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, PlusCircle, UserPlus, Users } from "lucide-react"; // Changed MessageCircle to Users
+import { Search, PlusCircle, Users, X } from "lucide-react"; // Added X icon
 import { cn } from "@/lib/utils";
 import React, { useState, useEffect } from "react";
 import { useUser } from "@clerk/nextjs"; 
 
 const SELF_CHAT_ID_PREFIX = "self-";
-const SHARED_CONVERSATION_ID = "global-metalai-chat"; // For identifying global chat
+const SHARED_CONVERSATION_ID = "global-metalai-chat"; 
 
 const ClientFormattedTime = ({ timestamp }: { timestamp: string }) => {
   const [formattedTime, setFormattedTime] = useState<string | null>(null);
@@ -20,10 +20,10 @@ const ClientFormattedTime = ({ timestamp }: { timestamp: string }) => {
   useEffect(() => {
     if (timestamp) {
       const date = new Date(timestamp);
-      if (!isNaN(date.getTime())) { // Check if date is valid
+      if (!isNaN(date.getTime())) { 
         setFormattedTime(date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
       } else {
-        setFormattedTime("..."); // Placeholder for invalid date
+        setFormattedTime("..."); 
       }
     } else {
       setFormattedTime(null); 
@@ -39,8 +39,9 @@ interface ChatSidebarProps {
   onSelectConversation: (id: string) => void;
   onOpenCreateGroupDialog: () => void; 
   currentUserId: string | null;
-  onOpenAddFriendDialog: () => void;
+  onOpenFindUsersDialog: () => void; // Renamed from onOpenAddFriendDialog
   appUserProfile: UserProfile | null; 
+  onHideConversation: (conversationId: string) => void; // New prop
 }
 
 export default function ChatSidebar({
@@ -49,13 +50,13 @@ export default function ChatSidebar({
   onSelectConversation,
   onOpenCreateGroupDialog,
   currentUserId,
-  onOpenAddFriendDialog,
-  appUserProfile
+  onOpenFindUsersDialog, // Renamed
+  appUserProfile,
+  onHideConversation // New prop
 }: ChatSidebarProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const { user: clerkUser } = useUser(); 
 
-  // Derive details for display
   const getDisplayDetails = (convo: Conversation): { name: string; avatarUrl?: string; dataAiHint: string } => {
     if (convo.id === SHARED_CONVERSATION_ID) {
         return { name: convo.name, avatarUrl: convo.avatarUrl, dataAiHint: convo.dataAiHint || "group chat" };
@@ -78,7 +79,6 @@ export default function ChatSidebar({
         };
       }
     }
-    // Fallback for groups or if details are missing
     return { 
         name: convo.name, 
         avatarUrl: convo.avatarUrl || `https://placehold.co/100x100.png?text=${convo.name?.[0]?.toUpperCase() || 'G'}`, 
@@ -91,7 +91,7 @@ export default function ChatSidebar({
     const displayDetails = getDisplayDetails(convo);
     const nameMatch = displayDetails.name.toLowerCase().includes(searchTerm.toLowerCase());
     const selfChatSearchTerms = ["you", "notes to self", "message yourself"];
-    const selfChatMatch = convo.isSelfChat && selfChatSearchTerms.some(term => term.toLowerCase().includes(searchTerm.toLowerCase())); // fixed selfChatSearch
+    const selfChatMatch = convo.isSelfChat && selfChatSearchTerms.some(term => term.toLowerCase().includes(searchTerm.toLowerCase()));
     
     return nameMatch || selfChatMatch;
   }).sort((a, b) => {
@@ -122,35 +122,51 @@ export default function ChatSidebar({
           {filteredConversations.map((convo) => {
             const display = getDisplayDetails(convo);
             const fallbackInitial = display.name?.[0]?.toUpperCase() || (convo.isSelfChat ? 'Y' : 'C');
+            const canBeHidden = !convo.isSelfChat && convo.id !== SHARED_CONVERSATION_ID;
             return (
-                <button
-                key={convo.id}
-                onClick={() => onSelectConversation(convo.id)}
-                disabled={!convo.id}
-                className={cn(
-                    "flex items-center w-full p-3 rounded-md text-left transition-colors duration-150 ease-in-out",
-                    selectedConversationId === convo.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "hover:bg-sidebar-accent/20 hover:text-sidebar-primary",
-                    !convo.id && "opacity-50 cursor-not-allowed"
-                )}
-                >
-                <Avatar className="h-10 w-10 mr-3">
-                    <AvatarImage src={display.avatarUrl} alt={display.name} data-ai-hint={display.dataAiHint} />
-                    <AvatarFallback>{fallbackInitial}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                    <p className="font-semibold font-body truncate">{display.name}</p>
-                    <p className="text-xs text-muted-foreground truncate font-body">
-                    {convo.lastMessage}
-                    </p>
+                <div key={convo.id} className="group relative">
+                    <button
+                    onClick={() => onSelectConversation(convo.id)}
+                    disabled={!convo.id}
+                    className={cn(
+                        "flex items-center w-full p-3 rounded-md text-left transition-colors duration-150 ease-in-out",
+                        selectedConversationId === convo.id
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "hover:bg-sidebar-accent/20 hover:text-sidebar-primary",
+                        !convo.id && "opacity-50 cursor-not-allowed"
+                    )}
+                    >
+                        <Avatar className="h-10 w-10 mr-3">
+                            <AvatarImage src={display.avatarUrl} alt={display.name} data-ai-hint={display.dataAiHint} />
+                            <AvatarFallback>{fallbackInitial}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                            <p className="font-semibold font-body truncate">{display.name}</p>
+                            <p className="text-xs text-muted-foreground truncate font-body">
+                            {convo.lastMessage}
+                            </p>
+                        </div>
+                        {convo.timestamp && (
+                            <span className="text-xs text-muted-foreground ml-2 self-start mt-1">
+                                <ClientFormattedTime timestamp={convo.timestamp} />
+                            </span>
+                        )}
+                    </button>
+                    {canBeHidden && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-1 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-destructive/20 hover:text-destructive transition-opacity"
+                            onClick={(e) => {
+                                e.stopPropagation(); // Prevent selecting the chat
+                                onHideConversation(convo.id);
+                            }}
+                            title="Hide Chat"
+                        >
+                            <X className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
-                {convo.timestamp && (
-                    <span className="text-xs text-muted-foreground ml-2 self-start mt-1">
-                        <ClientFormattedTime timestamp={convo.timestamp} />
-                    </span>
-                )}
-                </button>
             );
         })}
            {filteredConversations.length === 0 && (
@@ -161,20 +177,19 @@ export default function ChatSidebar({
         </nav>
       </ScrollArea>
       <div className="p-4 border-t border-sidebar-border space-y-2">
-          <Button variant="outline" className="w-full justify-start text-left" onClick={onOpenAddFriendDialog}>
-            <UserPlus className="h-5 w-5 mr-2" />
-            Add Friend / Start Chat
+          <Button variant="outline" className="w-full justify-start text-left" onClick={onOpenFindUsersDialog}> {/* Renamed */}
+            <Users className="h-5 w-5 mr-2" /> {/* Changed icon to Users */}
+            Find Users / Start Chat
           </Button>
           <Button 
             variant="default" 
             className="w-full justify-start text-left bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent/90"
             onClick={onOpenCreateGroupDialog}
             >
-            <Users className="h-5 w-5 mr-2" /> 
+            <PlusCircle className="h-5 w-5 mr-2" /> 
             New Group Chat
           </Button>
         </div>
     </div>
   );
 }
-

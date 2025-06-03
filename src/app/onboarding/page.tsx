@@ -65,8 +65,8 @@ export default function OnboardingPage() {
     const profile: UserProfile = {
       clerkUserId: user.id,
       displayName: displayName.trim(),
-      // photoPreview will be data URI if a new image was selected, or Clerk's URL if not.
       photoURL: photoPreview || undefined, 
+      hiddenConversationIds: [], // Initialize hidden conversations
     };
 
     // Store app-specific profile details with Clerk user ID suffix

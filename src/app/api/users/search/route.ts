@@ -14,26 +14,28 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('query');
 
-    if (!query || query.trim().length < 2) {
-      return NextResponse.json({ users: [] }); 
+    let usersResponse;
+    // If query is null, empty, or very short, fetch all users (or a default list)
+    // Clerk's `getUserList` without a query should return all users, respecting limits.
+    if (!query || query.trim().length < 1) { // Adjusted to allow fetching all if query is empty
+      usersResponse = await clerkClient.users.getUserList({ limit: 50 }); // Fetch up to 50 users as a general list
+    } else {
+      usersResponse = await clerkClient.users.getUserList({
+        query: query,
+        limit: 10, // Keep limit lower for specific searches
+      });
     }
-
-    const usersResponse = await clerkClient.users.getUserList({
-      query: query,
-      limit: 10, 
-    });
     
     if (!Array.isArray(usersResponse)) {
       console.error('Clerk getUserList did not return an array. Response:', usersResponse);
-      // Check if usersResponse might be a Clerk error object itself, e.g. usersResponse.errors
-      // For now, throw a generic error if it's not an array.
       let clerkErrorMessage = 'Received unexpected data from user service.';
       // @ts-ignore
       if (usersResponse && usersResponse.errors && Array.isArray(usersResponse.errors) && usersResponse.errors.length > 0) {
         // @ts-ignore
         clerkErrorMessage = usersResponse.errors.map(e => e.message).join(', ');
       }
-      throw new Error(`User service did not return a list: ${clerkErrorMessage}`);
+      // Instead of throwing, return a structured error to the client
+      return NextResponse.json({ error: `User service did not return a list: ${clerkErrorMessage}`, users: [] }, { status: 500 });
     }
 
     const simplifiedUsers = usersResponse
@@ -52,6 +54,6 @@ export async function GET(request: NextRequest) {
     if (error instanceof Error) {
         errorMessage = `Failed to search users: ${error.message}`;
     }
-    return NextResponse.json({ error: errorMessage }, { status: 500 });
+    return NextResponse.json({ error: errorMessage, users: [] }, { status: 500 });
   }
 }

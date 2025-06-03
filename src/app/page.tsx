@@ -16,16 +16,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MessageSquare, Lightbulb } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useUser, useAuth } from '@clerk/nextjs';
-import AddFriendDialog from '@/components/add-friend-dialog';
+import FindUsersDialog from '@/components/add-friend-dialog'; // Renamed import
 import CreateGroupDialog from '@/components/create-group-dialog';
 import ManageGroupMembersDialog from '@/components/manage-group-members-dialog';
 
 
 const LOCAL_STORAGE_PROFILE_KEY_PREFIX = "metalChatUserProfile_";
 const LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY_PREFIX = "metalChatOnboardingComplete_";
-const SELF_CHAT_ID_PREFIX = "self-"; // For user's self-chat
-
-// Global Chat - kept client-side for now
+const SELF_CHAT_ID_PREFIX = "self-"; 
 const SHARED_CONVERSATION_ID = "global-metalai-chat";
 const initialGlobalConversation: Conversation = {
   id: SHARED_CONVERSATION_ID,
@@ -33,10 +31,10 @@ const initialGlobalConversation: Conversation = {
   avatarUrl: "https://placehold.co/100x100.png?text=GC",
   dataAiHint: "group chat",
   lastMessage: "Welcome to the global chat! MetalAI will respond to your messages.",
-  timestamp: new Date(0).toISOString(), // Old timestamp to ensure it's sorted last if no real activity
+  timestamp: new Date(0).toISOString(), 
   messages: [],
   isGroup: true,
-  members: ["everyone"], // Placeholder for global
+  members: ["everyone"], 
 };
 
 
@@ -48,7 +46,7 @@ export default function HomePage() {
   const router = useRouter();
   const [appUserProfile, setAppUserProfile] = useState<UserProfile | null>(null);
   const [hasMounted, setHasMounted] = useState(false);
-  const [isAddFriendDialogOpen, setIsAddFriendDialogOpen] = useState(false);
+  const [isFindUsersDialogOpen, setIsFindUsersDialogOpen] = useState(false); // Renamed state
   const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
   const [isManageMembersDialogOpen, setIsManageMembersDialogOpen] = useState(false);
   const [conversationToManage, setConversationToManage] = useState<Conversation | null>(null);
@@ -76,19 +74,42 @@ export default function HomePage() {
     if (onboardingComplete !== 'true') {
       router.push('/onboarding');
     } else {
-      const storedAppProfile = localStorage.getItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`);
-      if (storedAppProfile) {
+      const storedAppProfileString = localStorage.getItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`);
+      if (storedAppProfileString) {
         try {
-          const parsedProfile: UserProfile = JSON.parse(storedAppProfile);
+          const parsedProfile: UserProfile = JSON.parse(storedAppProfileString);
+          // Ensure hiddenConversationIds is initialized
+          if (!parsedProfile.hiddenConversationIds) {
+            parsedProfile.hiddenConversationIds = [];
+          }
           setAppUserProfile(parsedProfile);
-        } catch (e) { console.error("Failed to parse app profile", e); }
+        } catch (e) { 
+            console.error("Failed to parse app profile", e); 
+            const fallbackProfile: UserProfile = {
+                clerkUserId: clerkUserId,
+                displayName: user?.fullName || user?.username || "User",
+                photoURL: user?.imageUrl || undefined,
+                hiddenConversationIds: []
+            };
+            setAppUserProfile(fallbackProfile);
+            localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`, JSON.stringify(fallbackProfile));
+        }
+      } else { // First time after onboarding, or if LS was cleared
+        const initialProfile: UserProfile = {
+            clerkUserId: clerkUserId,
+            displayName: user?.fullName || user?.username || "User",
+            photoURL: user?.imageUrl || undefined,
+            hiddenConversationIds: []
+        };
+        setAppUserProfile(initialProfile);
+        localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`, JSON.stringify(initialProfile));
       }
     }
-  }, [router, hasMounted, isSignedIn, isClerkLoaded, clerkUserId]);
+  }, [router, hasMounted, isSignedIn, isClerkLoaded, clerkUserId, user]);
 
   // Fetch conversations from Firestore
   useEffect(() => {
-    if (!hasMounted || !clerkUserId || !user) return;
+    if (!hasMounted || !clerkUserId || !user || !appUserProfile) return; // Wait for appUserProfile too
 
     const conversationsRef = collection(db, "conversations");
     const userConversationsQuery = query(
@@ -101,24 +122,28 @@ export default function HomePage() {
       const fetchedUserConversations: Conversation[] = [];
       querySnapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        fetchedUserConversations.push({
-          id: docSnap.id,
-          name: data.name || "Unnamed Chat",
-          avatarUrl: data.avatarUrl || `https://placehold.co/100x100.png?text=${data.name?.[0]?.toUpperCase() || 'C'}`,
-          dataAiHint: data.dataAiHint || (data.isGroup ? "group chat" : "person chat"),
-          lastMessage: data.lastMessage || "No messages yet.",
-          timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-          messages: [], 
-          isGroup: data.isGroup !== undefined ? data.isGroup : true,
-          isSelfChat: data.isSelfChat || false,
-          createdBy: data.createdBy,
-          members: data.members || [],
-          participantDetails: data.participantDetails || {},
-        });
+        // Filter out hidden conversations
+        if (!appUserProfile.hiddenConversationIds?.includes(docSnap.id)) {
+            fetchedUserConversations.push({
+                id: docSnap.id,
+                name: data.name || "Unnamed Chat",
+                avatarUrl: data.avatarUrl || `https://placehold.co/100x100.png?text=${data.name?.[0]?.toUpperCase() || 'C'}`,
+                dataAiHint: data.dataAiHint || (data.isGroup ? "group chat" : "person chat"),
+                lastMessage: data.lastMessage || "No messages yet.",
+                timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
+                messages: [], 
+                isGroup: data.isGroup !== undefined ? data.isGroup : true,
+                isSelfChat: data.isSelfChat || false,
+                createdBy: data.createdBy,
+                members: data.members || [],
+                participantDetails: data.participantDetails || {},
+            });
+        }
       });
       
       setConversations(prevConvos => {
-        const combined = [...fetchedUserConversations, initialGlobalConversation]
+        const globalChat = initialGlobalConversation; // Keep global chat separate from hidden filter
+        const combined = [...fetchedUserConversations, globalChat]
           .filter((convo, index, self) => index === self.findIndex((c) => c.id === convo.id))
           .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         
@@ -263,8 +288,22 @@ export default function HomePage() {
     return () => unsubscribeMessages();
   }, [selectedConversationId, toast, clerkUserId]);
 
+  const unhideConversation = useCallback((conversationId: string) => {
+    if (appUserProfile && appUserProfile.hiddenConversationIds?.includes(conversationId)) {
+      const updatedProfile = {
+        ...appUserProfile,
+        hiddenConversationIds: appUserProfile.hiddenConversationIds.filter(id => id !== conversationId),
+      };
+      setAppUserProfile(updatedProfile);
+      localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`, JSON.stringify(updatedProfile));
+      // Force re-fetch or re-filter of conversations to make it appear
+      // This is implicitly handled by the main conversation useEffect dependency on appUserProfile
+    }
+  }, [appUserProfile, clerkUserId]);
+
   const handleSelectConversation = (id: string) => {
     setSelectedConversationId(id);
+    unhideConversation(id); // Unhide when selected
   };
 
   const handleAddIdea = (idea: Idea) => {
@@ -398,6 +437,7 @@ export default function HomePage() {
 
       await addDoc(messagesRef, finalMessageData);
       await updateDoc(conversationRef, { lastMessage: displayLastMessage, timestamp: serverTimestamp() });
+      unhideConversation(conversationId); // Unhide on send
       
       const currentConvo = conversations.find(c => c.id === conversationId);
       if (type === 'text' && finalMessageData.sender === 'user' && currentConvo && !currentConvo.isSelfChat && currentConvo.isGroup) { 
@@ -427,7 +467,7 @@ export default function HomePage() {
       const err = error as Error;
       toast({ title: "Send Error", description: `Could not send message. ${err.message}. Check Firebase config.`, variant: "destructive", duration: 7000 });
     }
-  }, [toast, conversations, clerkUserId, user, appUserProfile]); 
+  }, [toast, conversations, clerkUserId, user, appUserProfile, unhideConversation]); 
 
   const handleDeleteMessageForMe = async (conversationId: string, messageId: string) => {
     if (!clerkUserId || conversationId === SHARED_CONVERSATION_ID) return; 
@@ -479,7 +519,7 @@ export default function HomePage() {
   };
   
   const handleCreateNewGroupConversation = async (groupName: string, selectedMembers: Array<{ id: string; displayName: string; avatarUrl?: string }>) => {
-    if (!groupName.trim() || !clerkUserId || !user) {
+    if (!groupName.trim() || !clerkUserId || !user || !appUserProfile) {
       toast({ title: "Error", description: "Group name cannot be empty or user not identified.", variant: "destructive" });
       return;
     }
@@ -491,8 +531,8 @@ export default function HomePage() {
     const newConversationId = uuidv4();
     const newConversationRef = doc(db, "conversations", newConversationId);
     
-    const creatorAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "Creator";
-    const creatorAppAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
+    const creatorAppDisplayName = appUserProfile.displayName;
+    const creatorAppAvatarUrl = appUserProfile.photoURL;
     
     const allMemberIds = [clerkUserId, ...selectedMembers.map(m => m.id)];
     const participantDetailsMap: { [userId: string]: ParticipantDetails } = {};
@@ -525,6 +565,7 @@ export default function HomePage() {
 
     try {
       await setDoc(newConversationRef, newConversationData);
+      unhideConversation(newConversationId); // Unhide if it was somehow hidden
       setSelectedConversationId(newConversationId);
       toast({ title: "Group Created", description: `Group "${groupName}" is ready.` });
       setIsCreateGroupDialogOpen(false); 
@@ -536,7 +577,7 @@ export default function HomePage() {
   };
 
   const handleStartChatWithUser = async (targetUser: SearchedUser) => {
-    if (!clerkUserId || !user || !targetUser) {
+    if (!clerkUserId || !user || !targetUser || !appUserProfile) {
       toast({ title: "Error", description: "Cannot start chat. User information missing.", variant: "destructive" });
       return;
     }
@@ -547,12 +588,13 @@ export default function HomePage() {
 
     try {
         const docSnap = await getDoc(chatDocRef);
+        unhideConversation(chatID); // Unhide if it was hidden
         if (docSnap.exists()) {
             setSelectedConversationId(chatID);
             toast({ title: "Chat Opened", description: `Opened existing chat with ${targetUser.username || targetUser.primaryEmailAddress}.`});
         } else {
-            const currentUserAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "Current User";
-            const currentUserAppAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
+            const currentUserAppDisplayName = appUserProfile.displayName;
+            const currentUserAppAvatarUrl = appUserProfile.photoURL;
             
             const currentUserDetails: ParticipantDetails = {
                 displayName: currentUserAppDisplayName,
@@ -583,11 +625,28 @@ export default function HomePage() {
             setSelectedConversationId(chatID);
             toast({ title: "Chat Started!", description: `You can now chat with ${targetUserDetails.displayName}.`});
         }
-        setIsAddFriendDialogOpen(false); 
+        setIsFindUsersDialogOpen(false); 
     } catch (error) {
         console.error("Error starting 1-on-1 chat:", error);
         const err = error as Error;
         toast({ title: "Chat Error", description: `Could not start chat: ${err.message}. Check Firebase config.`, variant: "destructive", duration: 7000 });
+    }
+  };
+
+  const handleHideConversation = (conversationId: string) => {
+    if (!appUserProfile || !clerkUserId) return;
+    const currentHiddenIds = appUserProfile.hiddenConversationIds || [];
+    if (!currentHiddenIds.includes(conversationId)) {
+        const updatedProfile = {
+            ...appUserProfile,
+            hiddenConversationIds: [...currentHiddenIds, conversationId],
+        };
+        setAppUserProfile(updatedProfile);
+        localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`, JSON.stringify(updatedProfile));
+        toast({title: "Chat Hidden", description: "The chat won't appear in your list until you interact with it again."});
+        if (selectedConversationId === conversationId) {
+            setSelectedConversationId(null); // Deselect if currently selected
+        }
     }
   };
 
@@ -599,7 +658,7 @@ export default function HomePage() {
   };
 
   const handleAddMembersToGroup = async (conversationId: string, membersToAdd: Array<{ id: string; displayName: string; avatarUrl?: string }>) => {
-    if (!clerkUserId || !user) return;
+    if (!clerkUserId || !user || !appUserProfile) return;
     const conversationRef = doc(db, "conversations", conversationId);
     
     const newMemberIds = membersToAdd.map(m => m.id);
@@ -611,7 +670,7 @@ export default function HomePage() {
         };
     });
     
-    const adderName = appUserProfile?.displayName || user.username || "Someone";
+    const adderName = appUserProfile.displayName;
 
     try {
         await updateDoc(conversationRef, {
@@ -630,7 +689,7 @@ export default function HomePage() {
   };
 
   const handleRemoveMemberFromGroup = async (conversationId: string, memberIdToRemove: string) => {
-     if (!clerkUserId || !user) return;
+     if (!clerkUserId || !user || !appUserProfile) return;
     const conversationRef = doc(db, "conversations", conversationId);
     const conversationDoc = await getDoc(conversationRef);
     const currentConversationData = conversationDoc.data() as Conversation | undefined;
@@ -648,7 +707,7 @@ export default function HomePage() {
          throw new Error("Creator cannot be removed if last member.");
      }
 
-    const removerName = appUserProfile?.displayName || user.username || "Someone";
+    const removerName = appUserProfile.displayName;
     const removedMemberName = currentConversationData.participantDetails?.[memberIdToRemove]?.displayName || 'A member';
 
     const updates: any = {
@@ -674,25 +733,39 @@ export default function HomePage() {
     return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Initializing MetalChat...</p></div>;
   }
   if (isClerkLoaded && !isSignedIn) {
+    router.push('/sign-in');
     return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Redirecting to sign-in...</p></div>;
   }
   if (isSignedIn && clerkUserId && localStorage.getItem(`${LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY_PREFIX}${clerkUserId}`) !== 'true') {
+     router.push('/onboarding');
      return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Redirecting to onboarding...</p></div>;
   }
+  if (!appUserProfile) { // Wait for appUserProfile to be loaded
+    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Loading user profile...</p></div>;
+  }
+
 
   const selectedConversation = conversations.find(c => c.id === selectedConversationId) || null;
+  // Filtered conversations for display, respecting hiddenConversationIds
+  const displayedConversations = conversations.filter(convo => 
+    convo.id === SHARED_CONVERSATION_ID || // Always show global
+    convo.isSelfChat || // Always show self-chat
+    !appUserProfile.hiddenConversationIds?.includes(convo.id)
+  );
+
 
   return (
     <div className="flex h-screen w-screen overflow-hidden antialiased text-foreground bg-background">
       <div className="w-full md:w-1/4 lg:w-1/5 max-w-xs hidden md:block h-full shrink-0">
         <ChatSidebar
-          conversations={conversations} 
+          conversations={displayedConversations} 
           selectedConversationId={selectedConversationId}
           onSelectConversation={handleSelectConversation}
           onOpenCreateGroupDialog={() => setIsCreateGroupDialogOpen(true)}
           currentUserId={clerkUserId}
-          onOpenAddFriendDialog={() => setIsAddFriendDialogOpen(true)}
+          onOpenFindUsersDialog={() => setIsFindUsersDialogOpen(true)} // Renamed prop
           appUserProfile={appUserProfile} 
+          onHideConversation={handleHideConversation} // Pass hide handler
         />
       </div>
       <div className="flex-1 h-full">
@@ -711,12 +784,13 @@ export default function HomePage() {
               currentUserId={clerkUserId}
               onDeleteMessageForMe={handleDeleteMessageForMe}
               onDeleteMessageForEveryone={handleDeleteMessageForEveryone}
-              allConversationsForSheet={conversations}
+              allConversationsForSheet={displayedConversations}
               onSelectConversationForSheet={handleSelectConversation}
               onOpenCreateGroupDialogForSheet={() => setIsCreateGroupDialogOpen(true)}
-              onOpenAddFriendDialogForSheet={() => setIsAddFriendDialogOpen(true)}
+              onOpenFindUsersDialogForSheet={() => setIsFindUsersDialogOpen(true)} // Renamed prop
               appUserProfileForSheet={appUserProfile}
               onOpenManageMembersDialogForSheet={handleOpenManageMembersDialog} 
+              onHideConversationForSheet={handleHideConversation} // Pass hide handler for sheet
             />
           </TabsContent>
           <TabsContent value="ideas" className="flex-1 overflow-y-auto p-4">
@@ -725,21 +799,21 @@ export default function HomePage() {
         </Tabs>
       </div>
       {clerkUserId && (
-        <AddFriendDialog 
-            isOpen={isAddFriendDialogOpen} 
-            onOpenChange={setIsAddFriendDialogOpen}
+        <FindUsersDialog // Renamed component usage
+            isOpen={isFindUsersDialogOpen} 
+            onOpenChange={setIsFindUsersDialogOpen}
             onStartChatWithUser={handleStartChatWithUser}
             currentUserId={clerkUserId}
         />
       )}
-      {clerkUserId && user && (
+      {clerkUserId && user && appUserProfile && (
         <CreateGroupDialog
             isOpen={isCreateGroupDialogOpen}
             onOpenChange={setIsCreateGroupDialogOpen}
             onCreateGroup={handleCreateNewGroupConversation}
             currentUserId={clerkUserId}
-            allConversations={conversations}
-            currentUserAppProfile={appUserProfile || {displayName: user.fullName || user.username || "You", photoURL: user.imageUrl}}
+            allConversations={conversations} // Pass unfiltered conversations for member selection
+            currentUserAppProfile={appUserProfile}
         />
       )}
       {clerkUserId && conversationToManage && user && (
@@ -748,7 +822,7 @@ export default function HomePage() {
             onOpenChange={setIsManageMembersDialogOpen}
             conversation={conversationToManage}
             currentUserId={clerkUserId}
-            allConversations={conversations}
+            allConversations={conversations} // Pass unfiltered for potential new members
             onAddMembersToGroup={handleAddMembersToGroup}
             onRemoveMemberFromGroup={handleRemoveMemberFromGroup}
         />

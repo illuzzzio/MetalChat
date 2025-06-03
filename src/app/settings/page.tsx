@@ -19,39 +19,53 @@ export default function SettingsPage() {
   const [displayName, setDisplayName] = useState('');
   const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null); 
   const [photoPreview, setPhotoPreview] = useState<string | null>(null); 
+  const [currentProfile, setCurrentProfile] = useState<UserProfile | null>(null);
   const { toast } = useToast();
   const { user, isLoaded, isSignedIn } = useUser();
 
   useEffect(() => {
-    if (!isLoaded) return;
-    if (!isSignedIn || !user) {
+    if (!isLoaded || !isSignedIn || !user) {
         // Middleware should handle redirect
         return;
     }
 
-    // Load app-specific profile or fallback to Clerk's data
-    const storedProfile = localStorage.getItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${user.id}`);
-    if (storedProfile) {
+    const storedProfileString = localStorage.getItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${user.id}`);
+    if (storedProfileString) {
       try {
-        const profile: UserProfile = JSON.parse(storedProfile);
+        const profile: UserProfile = JSON.parse(storedProfileString);
+        setCurrentProfile(profile);
         setDisplayName(profile.displayName);
-        // Use stored photoURL (which could be data URI or Clerk URL) if it exists, otherwise Clerk's image
         setPhotoPreview(profile.photoURL || user.imageUrl || null);
       } catch (e) {
         console.error("Failed to parse profile from localStorage", e);
-        setDisplayName(user.fullName || user.username || '');
-        setPhotoPreview(user.imageUrl || null);
+        // Fallback if parsing fails
+        const fallbackProfile: UserProfile = {
+            clerkUserId: user.id,
+            displayName: user.fullName || user.username || '',
+            photoURL: user.imageUrl || undefined,
+            hiddenConversationIds: []
+        };
+        setCurrentProfile(fallbackProfile);
+        setDisplayName(fallbackProfile.displayName);
+        setPhotoPreview(fallbackProfile.photoURL || null);
       }
     } else {
-      // No app-specific profile, use Clerk's data
-      setDisplayName(user.fullName || user.username || '');
-      setPhotoPreview(user.imageUrl || null);
+      // No app-specific profile, use Clerk's data and initialize
+      const initialProfile: UserProfile = {
+          clerkUserId: user.id,
+          displayName: user.fullName || user.username || '',
+          photoURL: user.imageUrl || undefined,
+          hiddenConversationIds: []
+      };
+      setCurrentProfile(initialProfile);
+      setDisplayName(initialProfile.displayName);
+      setPhotoPreview(initialProfile.photoURL || null);
     }
   }, [user, isLoaded, isSignedIn]);
 
   const handleSaveProfile = () => {
-    if (!user?.id) {
-        toast({ title: "Error", description: "User session not found.", variant: "destructive" });
+    if (!user?.id || !currentProfile) {
+        toast({ title: "Error", description: "User session or profile not found.", variant: "destructive" });
         return;
     }
     if (!displayName.trim()) {
@@ -63,22 +77,18 @@ export default function SettingsPage() {
       return;
     }
 
-    // photoPreview will contain the data URI of a newly selected local file,
-    // or the existing photoURL (from Clerk or previous data URI).
     const updatedProfile: UserProfile = {
-      clerkUserId: user.id,
+      ...currentProfile, // Preserve existing fields like hiddenConversationIds
       displayName: displayName.trim(),
       photoURL: photoPreview || undefined, 
     };
 
     localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${user.id}`, JSON.stringify(updatedProfile));
+    setCurrentProfile(updatedProfile); // Update state
     toast({
       title: 'Profile Updated',
       description: 'Your display name and local photo preview have been saved.',
     });
-    // TODO: If Clerk's user metadata update is implemented, call it here.
-    // For example: await user.update({ unsafeMetadata: { appDisplayName: displayName.trim() } });
-    // And for photo: await user.setProfileImage({ file: profilePhotoFile }); if a new file was selected.
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,7 +104,7 @@ export default function SettingsPage() {
         setPhotoPreview(reader.result as string); // This will be a data URI
       };
       reader.readAsDataURL(file);
-      toast({ title: "Image Selected (Local Preview)", description: "Image is previewed locally. Save changes to update. Actual upload to Clerk not yet implemented here."});
+      toast({ title: "Image Selected (Local Preview)", description: "Image is previewed locally. Save changes to update. Actual upload to Clerk not yet implemented via this page."});
     }
   };
   
