@@ -26,7 +26,7 @@ interface ChatHeaderProps {
   conversations?: Conversation[]; 
   selectedConversationId?: string | null;
   onSelectConversation?: (id: string) => void;
-  onCreateConversation?: (name: string) => void;
+  onOpenCreateGroupDialog?: () => void; // Changed from onCreateConversation
   currentUserId?: string | null;
   onOpenAddFriendDialog?: () => void;
   appUserProfile?: UserProfile | null; // For mobile sidebar to get user's own avatar
@@ -39,7 +39,7 @@ export default function ChatHeader({
   conversations: mobileSheetConversations,
   selectedConversationId: mobileSheetSelectedConvoId,
   onSelectConversation: mobileSheetOnSelectConvo,
-  onCreateConversation: mobileSheetOnCreateConvo,
+  onOpenCreateGroupDialog: mobileSheetOnOpenCreateGroupDialog, // Updated prop name
   currentUserId: mobileSheetCurrentUserId,
   onOpenAddFriendDialog: mobileSheetOnOpenAddFriendDialog,
   appUserProfile: mobileSheetAppUserProfile
@@ -57,23 +57,23 @@ export default function ChatHeader({
   return (
     <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-background/80 backdrop-blur-md z-10">
       <div className="flex items-center gap-2">
-        {isMobile && mobileSheetOnSelectConvo && mobileSheetOnCreateConvo && mobileSheetCurrentUserId && mobileSheetOnOpenAddFriendDialog && (
+        {isMobile && mobileSheetOnSelectConvo && mobileSheetOnOpenCreateGroupDialog && mobileSheetCurrentUserId && mobileSheetOnOpenAddFriendDialog && (
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="md:hidden">
-                <Menu className="h-5 w-5" /> {/* Changed icon here */}
+                <Menu className="h-5 w-5" /> 
                 <span className="sr-only">Open navigation</span>
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="p-0 w-full max-w-xs bg-sidebar text-sidebar-foreground">
                <ChatSidebar
-                  conversations={mobileSheetConversations || []} // Pass empty array if undefined
+                  conversations={mobileSheetConversations || []} 
                   selectedConversationId={mobileSheetSelectedConvoId}
                   onSelectConversation={mobileSheetOnSelectConvo}
-                  onCreateConversation={mobileSheetOnCreateConvo}
+                  onOpenCreateGroupDialog={mobileSheetOnOpenCreateGroupDialog} // Pass updated prop
                   currentUserId={mobileSheetCurrentUserId}
                   onOpenAddFriendDialog={mobileSheetOnOpenAddFriendDialog}
-                  appUserProfile={mobileSheetAppUserProfile} // Pass appUserProfile for mobile sidebar
+                  appUserProfile={mobileSheetAppUserProfile} 
                 />
             </SheetContent>
           </Sheet>
@@ -100,3 +100,4 @@ export default function ChatHeader({
     </div>
   );
 }
+

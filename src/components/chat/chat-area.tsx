@@ -30,7 +30,7 @@ interface ChatAreaProps {
    // Props for mobile sheet in ChatHeader
   allConversationsForSheet?: Conversation[];
   onSelectConversationForSheet?: (id: string) => void;
-  onCreateConversationForSheet?: (name: string) => void;
+  onOpenCreateGroupDialogForSheet?: () => void; // Changed from onCreateConversationForSheet
   onOpenAddFriendDialogForSheet?: () => void;
   appUserProfileForSheet?: UserProfile | null; // For mobile sidebar
 }
@@ -39,12 +39,12 @@ export default function ChatArea({
     conversation, 
     onSendMessage, 
     onAddIdea, 
-    currentUserId, // This is Clerk User ID
+    currentUserId, 
     onDeleteMessageForMe,
     onDeleteMessageForEveryone,
     allConversationsForSheet,
     onSelectConversationForSheet,
-    onCreateConversationForSheet,
+    onOpenCreateGroupDialogForSheet, // Updated prop name
     onOpenAddFriendDialogForSheet,
     appUserProfileForSheet
 }: ChatAreaProps) {
@@ -53,7 +53,7 @@ export default function ChatArea({
   const { toast } = useToast();
   const [isDragging, setIsDragging] = useState(false);
   const dropZoneRef = useRef<HTMLDivElement>(null);
-  const { user } = useUser(); // For getting current user's display name if needed for summary
+  const { user } = useUser(); 
 
   const handleSummarizeChat = async () => {
     if (!conversation || !currentUserId || conversation.messages.filter(m => !m.isDeleted && !m.deletedForUserIds?.includes(currentUserId)).length === 0) {
@@ -71,7 +71,6 @@ export default function ChatArea({
         } else if (msg.sender === 'metalAI') {
           senderName = 'MetalAI';
         }
-        // For other users, msg.userDisplayName should be used.
         return `${senderName}: ${msg.text}${msg.fileName ? ` [File: ${msg.fileName}]` : ''}`;
       })
       .join('\n');
@@ -119,7 +118,7 @@ export default function ChatArea({
         toast({ title: "Error", description: "No conversation selected.", variant: "destructive" });
         return;
     }
-    if (!currentUserId) { // Clerk User ID
+    if (!currentUserId) { 
         toast({ title: "Error", description: "User not identified.", variant: "destructive" });
         return;
     }
@@ -135,7 +134,6 @@ export default function ChatArea({
           toast({ title: "Unsupported File", description: `File type for "${file.name}" is not supported for drag & drop.`, variant: "destructive"});
           continue; 
         }
-        // Send file name as text for now, type identifies it as media
         onSendMessage(conversation.id, file.name, fileType, file); 
       }
     }
@@ -172,17 +170,17 @@ export default function ChatArea({
         conversations={allConversationsForSheet}
         selectedConversationId={conversation?.id}
         onSelectConversation={onSelectConversationForSheet}
-        onCreateConversation={onCreateConversationForSheet}
+        onOpenCreateGroupDialog={onOpenCreateGroupDialogForSheet} // Pass updated prop
         currentUserId={currentUserId}
         onOpenAddFriendDialog={onOpenAddFriendDialogForSheet}
-        appUserProfile={appUserProfileForSheet} // Pass appUserProfile for mobile sidebar
+        appUserProfile={appUserProfileForSheet} 
       />
       
       {conversation ? (
         <>
           <ChatMessages 
             messages={conversation.messages}
-            currentUserId={currentUserId} // Pass Clerk User ID
+            currentUserId={currentUserId} 
             onDeleteMessageForMe={onDeleteMessageForMe}
             onDeleteMessageForEveryone={onDeleteMessageForEveryone}
             conversationId={conversation.id}
@@ -191,7 +189,7 @@ export default function ChatArea({
             onSendMessage={onSendMessage} 
             conversationId={conversation.id}
             onAddIdea={onAddIdea}
-            currentUserId={currentUserId} // Pass Clerk User ID
+            currentUserId={currentUserId} 
           />
         </>
       ) : (
@@ -228,3 +226,4 @@ export default function ChatArea({
     </div>
   );
 }
+

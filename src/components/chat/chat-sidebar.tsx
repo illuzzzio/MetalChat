@@ -6,21 +6,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, PlusCircle, UserPlus, MessageCircle } from "lucide-react"; 
+import { Search, PlusCircle, UserPlus, Users } from "lucide-react"; // Changed MessageCircle to Users
 import { cn } from "@/lib/utils";
 import React, { useState, useEffect } from "react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Label } from "@/components/ui/label";
 import { useUser } from "@clerk/nextjs"; 
 
 const SELF_CHAT_ID_PREFIX = "self-";
@@ -49,46 +37,35 @@ interface ChatSidebarProps {
   conversations: Conversation[];
   selectedConversationId: string | null;
   onSelectConversation: (id: string) => void;
-  onCreateConversation: (name: string) => void; // For group chats
+  onOpenCreateGroupDialog: () => void; 
   currentUserId: string | null;
   onOpenAddFriendDialog: () => void;
-  appUserProfile: UserProfile | null; // Pass app user profile for avatar
+  appUserProfile: UserProfile | null; 
 }
 
 export default function ChatSidebar({
   conversations,
   selectedConversationId,
   onSelectConversation,
-  onCreateConversation, // This is for creating new GROUP chats
+  onOpenCreateGroupDialog,
   currentUserId,
   onOpenAddFriendDialog,
   appUserProfile
 }: ChatSidebarProps) {
-  const [newConversationName, setNewConversationName] = useState("");
-  const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const { user: clerkUser } = useUser(); 
 
-  const handleCreateNewGroupConversation = () => {
-    if (newConversationName.trim()) {
-      onCreateConversation(newConversationName.trim()); // Call prop for group chat creation
-      setNewConversationName("");
-      setIsCreateGroupDialogOpen(false);
-    }
-  };
-  
   // Derive details for display
   const getDisplayDetails = (convo: Conversation): { name: string; avatarUrl?: string; dataAiHint: string } => {
     if (convo.id === SHARED_CONVERSATION_ID) {
         return { name: convo.name, avatarUrl: convo.avatarUrl, dataAiHint: convo.dataAiHint || "group chat" };
     }
-    // For self-chat, prioritize appUserProfile photo, then Clerk's
     if (convo.isSelfChat && currentUserId && clerkUser) {
       const selfAvatar = appUserProfile?.photoURL || clerkUser.imageUrl;
       return { 
         name: "You (Notes to self)", 
-        avatarUrl: selfAvatar, 
-        dataAiHint: "self note user" // Use the already prioritized avatar from convo object for simplicity
+        avatarUrl: selfAvatar || `https://placehold.co/100x100.png?text=Y`,
+        dataAiHint: "self note user" 
       };
     }
     if (!convo.isGroup && convo.members && convo.members.length === 2 && currentUserId && convo.participantDetails) {
@@ -101,25 +78,27 @@ export default function ChatSidebar({
         };
       }
     }
-    // Fallback for groups or if details are missing, use convo.avatarUrl which should be pre-set with priority
-    return { name: convo.name, avatarUrl: convo.avatarUrl, dataAiHint: convo.dataAiHint || (convo.isGroup ? "group team" : "chat direct") };
+    // Fallback for groups or if details are missing
+    return { 
+        name: convo.name, 
+        avatarUrl: convo.avatarUrl || `https://placehold.co/100x100.png?text=${convo.name?.[0]?.toUpperCase() || 'G'}`, 
+        dataAiHint: convo.dataAiHint || (convo.isGroup ? "group team" : "chat direct") 
+    };
   };
 
 
   const filteredConversations = conversations.filter(convo => {
     const displayDetails = getDisplayDetails(convo);
     const nameMatch = displayDetails.name.toLowerCase().includes(searchTerm.toLowerCase());
-    // Add specific search for "You" or "Notes to self" for self-chat
     const selfChatSearchTerms = ["you", "notes to self", "message yourself"];
-    const selfChatMatch = convo.isSelfChat && selfChatSearchTerms.some(term => term.includes(searchTerm.toLowerCase()));
+    const selfChatMatch = convo.isSelfChat && selfChatSearchTerms.some(term => term.toLowerCase().includes(searchTerm.toLowerCase())); // fixed selfChatSearch
     
     return nameMatch || selfChatMatch;
   }).sort((a, b) => {
-      // Prioritize self chat and global chat if needed, then by timestamp
-      if (a.isSelfChat) return -1;
-      if (b.isSelfChat) return 1;
-      if (a.id === SHARED_CONVERSATION_ID) return -1; // Keep global at top after self
-      if (b.id === SHARED_CONVERSATION_ID) return 1;
+      if (a.isSelfChat && !b.isSelfChat) return -1;
+      if (b.isSelfChat && !a.isSelfChat) return 1;
+      if (a.id === SHARED_CONVERSATION_ID && b.id !== SHARED_CONVERSATION_ID && !b.isSelfChat) return -1; 
+      if (b.id === SHARED_CONVERSATION_ID && a.id !== SHARED_CONVERSATION_ID && !a.isSelfChat) return 1;
       return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
   });
 
@@ -186,49 +165,16 @@ export default function ChatSidebar({
             <UserPlus className="h-5 w-5 mr-2" />
             Add Friend / Start Chat
           </Button>
-          <AlertDialog open={isCreateGroupDialogOpen} onOpenChange={setIsCreateGroupDialogOpen}>
-            <AlertDialogTrigger asChild>
-              <Button variant="default" className="w-full justify-start text-left bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent/90">
-                <PlusCircle className="h-5 w-5 mr-2" />
-                New Group Chat
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Create New Group Chat</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Enter a name for your new group chat.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="name" className="text-right">
-                    Group Name
-                  </Label>
-                  <Input
-                    id="name"
-                    value={newConversationName}
-                    onChange={(e) => setNewConversationName(e.target.value)}
-                    className="col-span-3"
-                    placeholder="e.g., Project Alpha Team"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newConversationName.trim()) {
-                        e.preventDefault();
-                        handleCreateNewGroupConversation();
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-              <AlertDialogFooter>
-                <AlertDialogCancel onClick={() => setNewConversationName("")}>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleCreateNewGroupConversation} disabled={!newConversationName.trim()}>
-                  Create Group
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+          <Button 
+            variant="default" 
+            className="w-full justify-start text-left bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent/90"
+            onClick={onOpenCreateGroupDialog}
+            >
+            <Users className="h-5 w-5 mr-2" /> 
+            New Group Chat
+          </Button>
         </div>
     </div>
   );
 }
+

@@ -17,6 +17,7 @@ import { MessageSquare, Lightbulb } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useUser, useAuth } from '@clerk/nextjs';
 import AddFriendDialog from '@/components/add-friend-dialog';
+import CreateGroupDialog from '@/components/create-group-dialog';
 
 
 const LOCAL_STORAGE_PROFILE_KEY_PREFIX = "metalChatUserProfile_";
@@ -47,6 +48,7 @@ export default function HomePage() {
   const [appUserProfile, setAppUserProfile] = useState<UserProfile | null>(null);
   const [hasMounted, setHasMounted] = useState(false);
   const [isAddFriendDialogOpen, setIsAddFriendDialogOpen] = useState(false);
+  const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
 
   const { isSignedIn, user, isLoaded: isClerkLoaded } = useUser();
   const { userId: clerkUserId } = useAuth();
@@ -454,39 +456,58 @@ export default function HomePage() {
     }
   };
   
-  // For creating user-named group chats
-  const handleCreateNewGroupConversation = async (name: string) => {
-    if (!name.trim() || !clerkUserId || !user) {
-      toast({ title: "Error", description: "Conversation name cannot be empty or user not identified.", variant: "destructive" });
+  const handleCreateNewGroupConversation = async (groupName: string, selectedMembers: Array<{ id: string; displayName: string; avatarUrl?: string }>) => {
+    if (!groupName.trim() || !clerkUserId || !user) {
+      toast({ title: "Error", description: "Group name cannot be empty or user not identified.", variant: "destructive" });
       return;
     }
+    if (selectedMembers.length === 0) {
+        toast({ title: "Error", description: "Please select at least one member for the group.", variant: "destructive" });
+        return;
+    }
+
     const newConversationId = uuidv4();
     const newConversationRef = doc(db, "conversations", newConversationId);
     
-    const currentAppUserDisplay = appUserProfile?.displayName || user.fullName || user.username || "User";
-    const currentAppUserAvatar = appUserProfile?.photoURL || user.imageUrl;
-    const creatorDetails: ParticipantDetails = { displayName: currentAppUserDisplay, avatarUrl: currentAppUserAvatar };
+    const creatorAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "Creator";
+    const creatorAppAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
+    
+    const allMemberIds = [clerkUserId, ...selectedMembers.map(m => m.id)];
+    const participantDetailsMap: { [userId: string]: ParticipantDetails } = {};
+
+    // Add creator details
+    participantDetailsMap[clerkUserId] = { 
+        displayName: creatorAppDisplayName, 
+        avatarUrl: creatorAppAvatarUrl || undefined 
+    };
+
+    // Add selected member details
+    selectedMembers.forEach(member => {
+        participantDetailsMap[member.id] = {
+            displayName: member.displayName,
+            avatarUrl: member.avatarUrl || undefined
+        };
+    });
 
     const newConversationData = {
       id: newConversationId,
-      name,
-      avatarUrl: `https://placehold.co/100x100.png?text=${name.substring(0,1).toUpperCase()}`,
-      dataAiHint: "group chat",
-      lastMessage: "Conversation created.",
+      name: groupName,
+      avatarUrl: `https://placehold.co/100x100.png?text=${groupName.substring(0,1).toUpperCase()}`,
+      dataAiHint: "group team users",
+      lastMessage: `${creatorAppDisplayName} created the group.`,
       timestamp: serverTimestamp(),
       isGroup: true, 
       isSelfChat: false,
       createdBy: clerkUserId,
-      createdByName: currentAppUserDisplay,
-      members: [clerkUserId], // Creator is the first member
-      participantDetails: { [clerkUserId]: creatorDetails },
+      members: allMemberIds,
+      participantDetails: participantDetailsMap,
     };
 
     try {
       await setDoc(newConversationRef, newConversationData);
-      // Client-side update handled by Firestore snapshot listener
       setSelectedConversationId(newConversationId);
-      toast({ title: "Conversation Created", description: `"${name}" is ready.` });
+      toast({ title: "Group Created", description: `Group "${groupName}" is ready.` });
+      setIsCreateGroupDialogOpen(false); // Close dialog on successful creation
     } catch (error) {
       console.error("Error creating group conversation:", error);
       toast({ title: "Creation Error", description: "Could not create group conversation.", variant: "destructive" });
@@ -571,10 +592,10 @@ export default function HomePage() {
           conversations={conversations} 
           selectedConversationId={selectedConversationId}
           onSelectConversation={handleSelectConversation}
-          onCreateConversation={handleCreateNewGroupConversation} // For creating new group chats
+          onOpenCreateGroupDialog={() => setIsCreateGroupDialogOpen(true)}
           currentUserId={clerkUserId}
           onOpenAddFriendDialog={() => setIsAddFriendDialogOpen(true)}
-          appUserProfile={appUserProfile} // Pass appUserProfile for sidebar display
+          appUserProfile={appUserProfile} 
         />
       </div>
       <div className="flex-1 h-full">
@@ -593,12 +614,12 @@ export default function HomePage() {
               currentUserId={clerkUserId}
               onDeleteMessageForMe={handleDeleteMessageForMe}
               onDeleteMessageForEveryone={handleDeleteMessageForEveryone}
-              // For mobile sheet to pass down to ChatHeader within ChatArea
+              // For mobile sheet
               allConversationsForSheet={conversations}
               onSelectConversationForSheet={handleSelectConversation}
-              onCreateConversationForSheet={handleCreateNewGroupConversation}
+              onOpenCreateGroupDialogForSheet={() => setIsCreateGroupDialogOpen(true)}
               onOpenAddFriendDialogForSheet={() => setIsAddFriendDialogOpen(true)}
-              appUserProfileForSheet={appUserProfile} // Pass for mobile sidebar via ChatArea->ChatHeader
+              appUserProfileForSheet={appUserProfile} 
             />
           </TabsContent>
           <TabsContent value="ideas" className="flex-1 overflow-y-auto p-4">
@@ -614,6 +635,17 @@ export default function HomePage() {
             currentUserId={clerkUserId}
         />
       )}
+      {clerkUserId && (
+        <CreateGroupDialog
+            isOpen={isCreateGroupDialogOpen}
+            onOpenChange={setIsCreateGroupDialogOpen}
+            onCreateGroup={handleCreateNewGroupConversation}
+            currentUserId={clerkUserId}
+            allConversations={conversations}
+            currentUserAppProfile={appUserProfile}
+        />
+      )}
     </div>
   );
 }
+
