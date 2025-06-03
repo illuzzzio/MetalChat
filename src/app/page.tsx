@@ -27,7 +27,7 @@ const initialGlobalConversation: Conversation = {
   name: "Global MetalAI Chat",
   avatarUrl: "https://placehold.co/100x100.png?text=GC",
   dataAiHint: "group chat",
-  lastMessage: "Welcome to the global chat!",
+  lastMessage: "Welcome to the global chat! MetalAI will respond to your messages.",
   timestamp: new Date().toISOString(),
   messages: [],
   isGroup: true,
@@ -72,20 +72,28 @@ export default function HomePage() {
   const router = useRouter();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   // Initialize or retrieve user ID
   useEffect(() => {
+    if (!hasMounted) return; // Wait for client-side mount
     let userId = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
     if (!userId) {
       userId = uuidv4();
       localStorage.setItem(LOCAL_STORAGE_USER_ID_KEY, userId);
     }
     setCurrentUserId(userId);
-  }, []);
+  }, [hasMounted]);
 
 
   // Onboarding and Profile loading
  useEffect(() => {
+    if (!hasMounted) return; // Wait for client-side mount
+
     const onboardingComplete = localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY);
     const storedUserId = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
 
@@ -94,13 +102,20 @@ export default function HomePage() {
     } else {
       const storedProfile = localStorage.getItem(LOCAL_STORAGE_PROFILE_KEY);
       if (storedProfile) {
-        setUserProfile(JSON.parse(storedProfile));
+        try {
+            setUserProfile(JSON.parse(storedProfile));
+        } catch (e) {
+            console.error("Failed to parse profile, redirecting to onboarding", e);
+            localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY); // Clear corrupted data
+            localStorage.removeItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY); // Reset onboarding
+            router.push('/onboarding');
+        }
       } else {
-        // Should not happen if onboarding was complete, but as a fallback:
+        // Should not happen if onboarding was complete & user ID exists, but as a fallback:
         router.push('/onboarding');
       }
     }
-  }, [router]);
+  }, [router, hasMounted]);
 
   // Audio Init
   useEffect(() => {
@@ -151,11 +166,12 @@ export default function HomePage() {
       toast({ title: "Error", description: "Could not fetch conversations.", variant: "destructive" });
     });
     return () => unsubscribe();
-  }, [toast]); 
+  }, [toast, selectedConversationId]); // Added selectedConversationId to potentially re-evaluate if it becomes invalid
 
   // Fetch messages for the selected conversation
   useEffect(() => {
     if (!selectedConversationId) {
+        // Clear messages for all conversations if no conversation is selected
         setConversations(prevConvos => prevConvos.map(c => ({ ...c, messages: [] })));
         return;
     }
@@ -177,6 +193,7 @@ export default function HomePage() {
           fileName: data.fileName,
           duration: data.duration,
           isDeleted: data.isDeleted || false,
+          deletedForMe: data.deletedForMe?.[currentUserId || ''] || false, // More specific deletedForMe
           userId: data.userId,
         });
       });
@@ -194,7 +211,7 @@ export default function HomePage() {
     });
 
     return () => unsubscribeMessages();
-  }, [selectedConversationId, toast]);
+  }, [selectedConversationId, toast, currentUserId]);
 
   const handleSelectConversation = (id: string) => {
     setSelectedConversationId(id);
@@ -222,34 +239,36 @@ export default function HomePage() {
     const messagesRef = collection(db, "conversations", conversationId, "messages");
     const conversationRef = doc(db, "conversations", conversationId);
 
-    const messageDataToStore: Omit<Message, 'id' | 'timestamp' | 'deletedForMe'> & { timestamp: any } = {
-      sender: 'user',
-      type,
-      timestamp: serverTimestamp(),
-      text: '', 
-      userId: currentUserId,
+    // Base message data, common to all types
+    const messageData: Partial<Message> & { timestamp: any } = {
+        sender: 'user',
+        type,
+        timestamp: serverTimestamp(),
+        userId: currentUserId,
+        isDeleted: false,
+        deletedForMe: {}, 
     };
     
     let displayLastMessage = text;
 
     if (type === 'text') {
-      messageDataToStore.text = text;
+      messageData.text = text;
     } else if (imageDataUri && type === 'image') {
-        messageDataToStore.fileUrl = imageDataUri; 
-        messageDataToStore.fileName = `Pasted Image ${new Date().toISOString()}.png`;
-        messageDataToStore.text = messageDataToStore.fileName; // Or keep empty if just image
+        messageData.fileUrl = imageDataUri; 
+        messageData.fileName = `Pasted Image ${new Date().toISOString()}.png`;
+        messageData.text = messageData.fileName; // Or keep empty if just image
         displayLastMessage = "Image shared";
     } else if (file) {
       // For true sharing, upload to Firebase Storage and use the URL.
       // For now, use a local preview URL and toast a message.
       const localUrl = URL.createObjectURL(file);
-      messageDataToStore.fileUrl = localUrl; 
-      messageDataToStore.fileName = file.name;
-      messageDataToStore.text = file.name; // Or an empty string, or specific text
+      messageData.fileUrl = localUrl; 
+      messageData.fileName = file.name;
+      messageData.text = file.name; 
       
       if (type === 'audio') {
         displayLastMessage = "Audio message";
-        if (duration) messageDataToStore.duration = duration;
+        if (duration) messageData.duration = duration;
       } else if (type === 'video') {
         displayLastMessage = "Video shared";
       } else if (type === 'image') {
@@ -261,20 +280,28 @@ export default function HomePage() {
       return;
     }
     
-    if (!messageDataToStore.text && !messageDataToStore.fileUrl) { // Ensure there's some content
-      messageDataToStore.text = 'Media Content';
+    // Ensure there's some content
+    if (!messageData.text && !messageData.fileUrl) { 
+      messageData.text = 'Media Content'; // Fallback text
       displayLastMessage = 'Media Content';
     }
 
 
     try {
-      await addDoc(messagesRef, messageDataToStore);
+      const finalMessageData = { ...messageData }; // Ensure all required fields are present or explicitly null
+      if (!finalMessageData.text) finalMessageData.text = ""; // Ensure text is at least empty string
+      if (!finalMessageData.fileUrl) finalMessageData.fileUrl = null;
+      if (!finalMessageData.fileName) finalMessageData.fileName = null;
+      if (!finalMessageData.duration) finalMessageData.duration = null;
+
+
+      await addDoc(messagesRef, finalMessageData);
       await updateDoc(conversationRef, {
         lastMessage: displayLastMessage,
         timestamp: serverTimestamp(),
       });
       
-      if (type === 'text' && messageDataToStore.sender === 'user') {
+      if (type === 'text' && finalMessageData.sender === 'user') {
         const loadingAiMessageId = `metalai-loading-${Date.now()}`;
          setConversations(prevConvos =>
             prevConvos.map(convo => {
@@ -299,11 +326,11 @@ export default function HomePage() {
         try {
           const currentConvo = conversations.find(c => c.id === conversationId);
           const chatHistoryForAI = currentConvo?.messages
-            .filter(msg => !msg.isLoading && (msg.sender === 'user' || msg.sender === 'metalAI') && msg.type === 'text' && !msg.isDeleted && !msg.deletedForMe)
+            .filter(msg => !msg.isLoading && (msg.sender === 'user' || msg.sender === 'metalAI') && msg.type === 'text' && !msg.isDeleted && (!msg.deletedForMe || !msg.deletedForMe[currentUserId]))
             .slice(-10) 
             .map(msg => ({
               role: msg.sender === 'user' ? 'user' : 'model' as 'user' | 'model',
-              parts: [{ text: msg.text }]
+              parts: [{ text: msg.text as string }]
             })) || [];
 
           const aiResponse = await metalAIChat({ userInput: text, chatHistory: chatHistoryForAI });
@@ -325,7 +352,9 @@ export default function HomePage() {
             sender: 'metalAI',
             type: 'text',
             timestamp: serverTimestamp(),
-            userId: 'metalAI-bot'
+            userId: 'metalAI-bot',
+            isDeleted: false,
+            deletedForMe: {},
           });
           await updateDoc(conversationRef, {
             lastMessage: aiResponse.aiResponse,
@@ -351,7 +380,9 @@ export default function HomePage() {
             sender: 'metalAI',
             type: 'text',
             timestamp: serverTimestamp(),
-            userId: 'metalAI-bot'
+            userId: 'metalAI-bot',
+            isDeleted: false,
+            deletedForMe: {},
           });
            await updateDoc(conversationRef, {
             lastMessage: "Sorry, I encountered an error.",
@@ -361,7 +392,7 @@ export default function HomePage() {
       } else if ((type === 'image' || type === 'video' || type === 'audio') && (file || imageDataUri)) {
          toast({
             title: `${type.charAt(0).toUpperCase() + type.slice(1)} Sent (Local Preview)`,
-            description: `"${messageDataToStore.fileName || 'Pasted content'}" is shown locally. For others to see/hear it, backend file upload (not yet implemented) is required.`,
+            description: `"${finalMessageData.fileName || 'Pasted content'}" is shown locally. For others to see/hear it, backend file upload is required.`,
             duration: 7000,
          });
       }
@@ -372,20 +403,33 @@ export default function HomePage() {
     }
   }, [toast, conversations, currentUserId]); 
 
-  const handleDeleteMessageForMe = (conversationId: string, messageId: string) => {
+  const handleDeleteMessageForMe = async (conversationId: string, messageId: string) => {
+    if (!currentUserId) return;
+    // This is a client-side only "hide". For persistence, we'd need to store this preference.
+    // For now, we update the local state and then update Firestore to mark it for this user.
     setConversations(prevConvos =>
-      prevConvos.map(convo =>
-        convo.id === conversationId
-          ? {
-              ...convo,
-              messages: convo.messages.map(msg =>
-                msg.id === messageId ? { ...msg, deletedForMe: true } : msg
-              ),
-            }
-          : convo
-      )
+        prevConvos.map(convo =>
+            convo.id === conversationId
+            ? {
+                ...convo,
+                messages: convo.messages.map(msg =>
+                    msg.id === messageId ? { ...msg, deletedForMe: { ...(msg.deletedForMe || {}), [currentUserId]: true } } : msg
+                ),
+                }
+            : convo
+        )
     );
     toast({ title: "Message Hidden", description: "The message is hidden in your view."});
+    
+    // Optionally, update Firestore to persist this "hide" for the user across sessions/devices
+    // This part can be complex if not carefully managed
+    // For simplicity, this example might skip persistent "delete for me" in Firestore to avoid complexity,
+    // or implement a basic version. Let's assume a simple local hide for now as per the earlier setup.
+    // To make it persistent:
+    // const messageRef = doc(db, "conversations", conversationId, "messages", messageId);
+    // await updateDoc(messageRef, {
+    //   [`deletedForMe.${currentUserId}`]: true
+    // });
   };
 
   const handleDeleteMessageForEveryone = async (conversationId: string, messageId: string) => {
@@ -399,26 +443,32 @@ export default function HomePage() {
         fileName: null,
         duration: null,
         isDeleted: true,
+        // Retain original sender, timestamp, userId if needed for audit, but clear content
       });
       toast({ title: "Message Deleted", description: "The message has been deleted for everyone."});
       
-      // Update last message if this was the last one visible one
       const convoRef = doc(db, "conversations", conversationId);
       const currentConvo = conversations.find(c => c.id === conversationId);
       
       if (currentConvo) {
-          const visibleMessages = currentConvo.messages.filter(m => !m.isDeleted && !m.deletedForMe);
-          const latestVisibleMessageAfterDelete = visibleMessages.filter(m=> m.id !== messageId).pop();
+          const visibleMessages = currentConvo.messages.filter(m => {
+              if (m.id === messageId) return false; // The one being deleted
+              if (m.isDeleted) return false; // Already deleted for everyone
+              if (m.deletedForMe && m.deletedForMe[currentUserId || '']) return false; // Hidden by current user
+              return true;
+          });
           
-          let newLastMessageText = "This message was deleted.";
+          const latestVisibleMessageAfterDelete = visibleMessages.pop(); // Gets the new last message
+          
+          let newLastMessageText = "This message was deleted."; // Default if no other messages
           if(latestVisibleMessageAfterDelete){
-            newLastMessageText = latestVisibleMessageAfterDelete.text;
+            newLastMessageText = latestVisibleMessageAfterDelete.text as string;
             if(latestVisibleMessageAfterDelete.type !== 'text' && latestVisibleMessageAfterDelete.fileName){
                  newLastMessageText = latestVisibleMessageAfterDelete.fileName;
             }
-          } else if (visibleMessages.length === 1 && visibleMessages[0].id === messageId) {
-             // This was the only visible message
-             newLastMessageText = "This message was deleted.";
+          } else if (currentConvo.messages.filter(m => !m.isDeleted && (!m.deletedForMe || !m.deletedForMe[currentUserId || ''])).length === 0){
+             // No messages left at all
+             newLastMessageText = "No messages yet.";
           }
 
 
@@ -436,12 +486,14 @@ export default function HomePage() {
   
   const handleCreateNewConversation = async (name: string) => {
     if (!name.trim() || !currentUserId) {
-      toast({ title: "Error", description: "Conversation name cannot be empty.", variant: "destructive" });
+      toast({ title: "Error", description: "Conversation name cannot be empty or user not identified.", variant: "destructive" });
       return;
     }
     const newConversationId = uuidv4();
     const newConversationRef = doc(db, "conversations", newConversationId);
-    const newConversationData: Omit<Conversation, 'messages' | 'timestamp'> & {timestamp: any, createdBy: string} = {
+    
+    // Explicitly define all fields for the new conversation object
+    const newConversationData: Omit<Conversation, 'messages' | 'timestamp' | 'id'> & { id: string, timestamp: any, createdBy: string } = {
       id: newConversationId,
       name,
       avatarUrl: `https://placehold.co/100x100.png?text=${name.substring(0,1).toUpperCase()}`,
@@ -454,11 +506,10 @@ export default function HomePage() {
 
     try {
       await setDoc(newConversationRef, newConversationData);
-      // Add to local state for immediate UI update
       const localNewConvo: Conversation = {
-          ...newConversationData,
-          messages: [],
-          timestamp: new Date().toISOString(), 
+          ...newConversationData, // Spread to ensure all fields
+          messages: [], // Initialize with empty messages
+          timestamp: new Date().toISOString(), // Use client time for local state before Firestore timestamp resolves
       }
       setConversations(prev => [localNewConvo, ...prev].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
       setSelectedConversationId(newConversationId);
@@ -472,9 +523,15 @@ export default function HomePage() {
   const selectedConversation = conversations.find(c => c.id === selectedConversationId) || null;
   const displayName = userProfile?.displayName || currentUserId || "User";
 
+
+  if (!hasMounted) {
+    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Initializing MetalChat...</p></div>;
+  }
+
   if (!userProfile && localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY) === 'true') {
-    // This means onboarding was complete, but profile somehow not loaded, or user ID not set yet.
-    // Let useEffect for onboarding handle redirection if needed.
+    // This state means onboarding was done, but profile isn't loaded into state yet.
+    // The useEffect for onboarding (lines 78-96) should be handling this.
+    // This message indicates we are waiting for that effect to set userProfile or redirect.
     return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Loading MetalChat profile...</p></div>;
   }
 
@@ -517,3 +574,4 @@ export default function HomePage() {
     </div>
   );
 }
+
