@@ -5,7 +5,6 @@ import type { NextRequest } from 'next/server';
 
 export async function GET(request: NextRequest) {
   try {
-    // Clerk Edge middleware should protect this route, but double check auth
     const authResult = getAuth(request);
     if (!authResult.userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -16,15 +15,26 @@ export async function GET(request: NextRequest) {
     const query = searchParams.get('query');
 
     if (!query || query.trim().length < 2) {
-      return NextResponse.json({ users: [] }); // Return empty if query too short
+      return NextResponse.json({ users: [] }); 
     }
 
-    // Search by various fields. `query` is a general search term.
     const usersResponse = await clerkClient.users.getUserList({
       query: query,
-      limit: 10, // Limit results to 10
+      limit: 10, 
     });
     
+    if (!Array.isArray(usersResponse)) {
+      console.error('Clerk getUserList did not return an array. Response:', usersResponse);
+      // Check if usersResponse might be a Clerk error object itself, e.g. usersResponse.errors
+      // For now, throw a generic error if it's not an array.
+      let clerkErrorMessage = 'Received unexpected data from user service.';
+      // @ts-ignore
+      if (usersResponse && usersResponse.errors && Array.isArray(usersResponse.errors) && usersResponse.errors.length > 0) {
+        // @ts-ignore
+        clerkErrorMessage = usersResponse.errors.map(e => e.message).join(', ');
+      }
+      throw new Error(`User service did not return a list: ${clerkErrorMessage}`);
+    }
 
     const simplifiedUsers = usersResponse
       .map(user => ({
@@ -33,15 +43,15 @@ export async function GET(request: NextRequest) {
         primaryEmailAddress: user.primaryEmailAddress?.emailAddress,
         imageUrl: user.imageUrl,
       }))
-      .filter(user => user.id !== currentUserId); // Exclude current user from search results
+      .filter(user => user.id !== currentUserId); 
 
     return NextResponse.json({ users: simplifiedUsers });
   } catch (error) {
     console.error('User search API error:', error);
-    // Check if it's a Clerk specific error and provide more details if safe
+    let errorMessage = 'Failed to search users due to an unknown error';
     if (error instanceof Error) {
-        return NextResponse.json({ error: `Failed to search users: ${error.message}` }, { status: 500 });
+        errorMessage = `Failed to search users: ${error.message}`;
     }
-    return NextResponse.json({ error: 'Failed to search users due to an unknown error' }, { status: 500 });
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

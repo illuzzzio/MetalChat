@@ -34,9 +34,8 @@ export default function AddFriendDialog({ isOpen, onOpenChange, onStartChatWithU
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Debounce search
   useEffect(() => {
-    if (!isOpen) { // Reset when dialog closes
+    if (!isOpen) { 
       setSearchQuery("");
       setSearchResults([]);
       setIsLoading(false);
@@ -52,31 +51,41 @@ export default function AddFriendDialog({ isOpen, onOpenChange, onStartChatWithU
 
     const delayDebounceFn = setTimeout(async () => {
       setIsLoading(true);
-      setError(null);
+      setError(null); // Clear previous errors at the start of a new search attempt
       try {
         const response = await fetch(`/api/users/search?query=${encodeURIComponent(searchQuery)}`);
+        const responseData = await response.json();
+
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || `Error: ${response.status}`);
+          throw new Error(responseData.error || `Search failed: ${response.statusText || response.status}`);
         }
-        const data = await response.json();
-        setSearchResults(data.users.filter((user: SearchedUser) => user.id !== currentUserId));
+
+        if (responseData && Array.isArray(responseData.users)) {
+          setSearchResults(responseData.users.filter((user: SearchedUser) => user.id !== currentUserId));
+        } else {
+          console.warn("Search API response OK, but `users` array is missing or not an array:", responseData);
+          setSearchResults([]);
+          // Consider setting a user-friendly error if the structure is unexpected but response was ok
+          setError("Received an unexpected response from the server while searching for users.");
+        }
       } catch (err) {
-        console.error("Failed to search users:", err);
-        setError(err instanceof Error ? err.message : "Failed to search users.");
+        console.error("Failed to search users (useEffect catch):", err);
+        const message = err instanceof Error ? err.message : "An unknown error occurred during user search.";
+        setError(message);
         setSearchResults([]);
-        toast({ title: "Search Error", description: err instanceof Error ? err.message : "Could not fetch users.", variant: "destructive" });
+        // Toast is shown when error state is updated and displayed in UI
+        // toast({ title: "Search Error", description: message, variant: "destructive" });
       } finally {
         setIsLoading(false);
       }
-    }, 500); // 500ms delay
+    }, 500); 
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery, isOpen, toast, currentUserId]);
 
   const handleUserSelect = (user: SearchedUser) => {
     onStartChatWithUser(user);
-    onOpenChange(false); // Close dialog after selecting
+    onOpenChange(false); 
   };
 
   return (
@@ -85,7 +94,7 @@ export default function AddFriendDialog({ isOpen, onOpenChange, onStartChatWithU
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2"><UserPlus /> Add Friend / Start Chat</AlertDialogTitle>
           <AlertDialogDescription>
-            Search for users by username or email to start a new chat.
+            Search for users by username or email to start a new chat (min. 2 characters).
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="py-4 space-y-4">
@@ -149,7 +158,6 @@ export default function AddFriendDialog({ isOpen, onOpenChange, onStartChatWithU
         </div>
         <AlertDialogFooter>
           <AlertDialogCancel onClick={() => { onOpenChange(false); }}>Cancel</AlertDialogCancel>
-          {/* Action button is now part of the search results */}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
