@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Conversation, Message, Idea, UserProfile } from "@/types/chat";
+import type { Conversation, Message, Idea, UserProfile, SearchedUser } from "@/types/chat";
 import ChatHeader from "./chat-header";
 import ChatMessages from "./chat-messages";
 import ChatInput from "./chat-input";
@@ -24,17 +24,17 @@ interface ChatAreaProps {
     duration?: number,
   ) => void;
   onAddIdea: (idea: Idea) => void;
-  currentUserId: string | null; // Clerk User ID
+  currentUserId: string | null; 
   onDeleteMessageForMe: (conversationId: string, messageId: string) => void;
   onDeleteMessageForEveryone: (conversationId: string, messageId: string) => void;
-   // Props for mobile sheet in ChatHeader
   allConversationsForSheet?: Conversation[];
+  allOtherUsersForSheet?: SearchedUser[]; // New prop
+  onStartChatWithUserForSheet?: (user: SearchedUser) => void; // New prop
   onSelectConversationForSheet?: (id: string) => void;
   onOpenCreateGroupDialogForSheet?: () => void; 
-  onOpenFindUsersDialogForSheet?: () => void; // Renamed from onOpenAddFriendDialogForSheet
   appUserProfileForSheet?: UserProfile | null; 
   onOpenManageMembersDialogForSheet?: (conversation: Conversation) => void;
-  onHideConversationForSheet?: (conversationId: string) => void; // New prop for hiding from sheet
+  onHideConversationForSheet?: (conversationId: string) => void; 
 }
 
 export default function ChatArea({ 
@@ -45,12 +45,13 @@ export default function ChatArea({
     onDeleteMessageForMe,
     onDeleteMessageForEveryone,
     allConversationsForSheet,
+    allOtherUsersForSheet, // New prop
+    onStartChatWithUserForSheet, // New prop
     onSelectConversationForSheet,
     onOpenCreateGroupDialogForSheet, 
-    onOpenFindUsersDialogForSheet, // Renamed
     appUserProfileForSheet,
     onOpenManageMembersDialogForSheet,
-    onHideConversationForSheet // New prop
+    onHideConversationForSheet 
 }: ChatAreaProps) {
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -67,7 +68,7 @@ export default function ChatArea({
 
     setIsSummaryLoading(true);
     const chatLog = conversation.messages
-      .filter(msg => !msg.isLoading && !msg.isDeleted && !msg.deletedForUserIds?.includes(currentUserId)) 
+      .filter(msg => !msg.isLoading && !msg.isDeleted && !msg.deletedForUserIds?.includes(currentUserId || '')) 
       .map(msg => {
         let senderName = msg.userDisplayName || 'System';
         if (msg.sender === 'user' && msg.userId === currentUserId) {
@@ -175,10 +176,11 @@ export default function ChatArea({
         onSelectConversation={onSelectConversationForSheet}
         onOpenCreateGroupDialog={onOpenCreateGroupDialogForSheet} 
         currentUserId={currentUserId}
-        onOpenFindUsersDialog={onOpenFindUsersDialogForSheet} // Renamed
         appUserProfile={appUserProfileForSheet} 
         onOpenManageMembersDialog={onOpenManageMembersDialogForSheet} 
-        onHideConversation={onHideConversationForSheet} // Pass hide handler for sheet
+        onHideConversation={onHideConversationForSheet}
+        allOtherUsersForSheet={allOtherUsersForSheet}
+        onStartChatWithUserForSheet={onStartChatWithUserForSheet}
       />
       
       {conversation ? (
@@ -231,3 +233,5 @@ export default function ChatArea({
     </div>
   );
 }
+
+    

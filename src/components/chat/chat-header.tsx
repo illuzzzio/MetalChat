@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Conversation, UserProfile } from "@/types/chat";
+import type { Conversation, UserProfile, SearchedUser } from "@/types/chat";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Settings, TvMinimalPlay, Menu, Users as UsersIcon } from "lucide-react"; 
@@ -27,10 +27,12 @@ interface ChatHeaderProps {
   onSelectConversation?: (id: string) => void;
   onOpenCreateGroupDialog?: () => void; 
   currentUserId?: string | null;
-  onOpenFindUsersDialog?: () => void; // Renamed from onOpenAddFriendDialog
+  // onOpenFindUsersDialog is removed
   appUserProfile?: UserProfile | null; 
   onOpenManageMembersDialog?: (conversation: Conversation) => void; 
-  onHideConversation?: (conversationId: string) => void; // New prop for sheet
+  onHideConversation?: (conversationId: string) => void; 
+  allOtherUsersForSheet?: SearchedUser[]; // New prop
+  onStartChatWithUserForSheet?: (user: SearchedUser) => void; // New prop
 }
 
 export default function ChatHeader({ 
@@ -41,10 +43,12 @@ export default function ChatHeader({
   onSelectConversation: mobileSheetOnSelectConvo,
   onOpenCreateGroupDialog: mobileSheetOnOpenCreateGroupDialog, 
   currentUserId: mobileSheetCurrentUserId,
-  onOpenFindUsersDialog: mobileSheetOnOpenFindUsersDialog, // Renamed
+  // onOpenFindUsersDialog is removed
   appUserProfile: mobileSheetAppUserProfile,
   onOpenManageMembersDialog,
-  onHideConversation: mobileSheetOnHideConversation // New prop
+  onHideConversation: mobileSheetOnHideConversation,
+  allOtherUsersForSheet, // New prop
+  onStartChatWithUserForSheet, // New prop
 }: ChatHeaderProps) {
   const isMobile = useIsMobile();
   const { toast } = useToast();
@@ -57,7 +61,7 @@ export default function ChatHeader({
   return (
     <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-background/80 backdrop-blur-md z-10">
       <div className="flex items-center gap-2">
-        {isMobile && mobileSheetOnSelectConvo && mobileSheetOnOpenCreateGroupDialog && mobileSheetCurrentUserId && mobileSheetOnOpenFindUsersDialog && mobileSheetOnHideConversation && (
+        {isMobile && mobileSheetOnSelectConvo && mobileSheetOnOpenCreateGroupDialog && mobileSheetCurrentUserId && mobileSheetOnHideConversation && allOtherUsersForSheet && onStartChatWithUserForSheet && (
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="md:hidden">
@@ -72,9 +76,10 @@ export default function ChatHeader({
                   onSelectConversation={mobileSheetOnSelectConvo}
                   onOpenCreateGroupDialog={mobileSheetOnOpenCreateGroupDialog} 
                   currentUserId={mobileSheetCurrentUserId}
-                  onOpenFindUsersDialog={mobileSheetOnOpenFindUsersDialog} // Renamed
                   appUserProfile={mobileSheetAppUserProfile} 
-                  onHideConversation={mobileSheetOnHideConversation} // Pass to sheet sidebar
+                  onHideConversation={mobileSheetOnHideConversation} 
+                  allOtherUsers={allOtherUsersForSheet}
+                  onStartChatWithUser={onStartChatWithUserForSheet}
                 />
             </SheetContent>
           </Sheet>
@@ -106,3 +111,5 @@ export default function ChatHeader({
     </div>
   );
 }
+
+    

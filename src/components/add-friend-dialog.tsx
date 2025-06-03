@@ -1,6 +1,10 @@
 
 "use client";
 
+// THIS FILE IS NO LONGER USED AND CAN BE DELETED.
+// The functionality of finding users to start chats has been moved directly
+// into the ChatSidebar by fetching all users and displaying them.
+
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   AlertDialog,
@@ -12,28 +16,25 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from './ui/button';
-import { useToast } from '@/hooks/use-toast';
 import type { SearchedUser } from '@/types/chat';
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from './ui/scroll-area';
-import { Loader2, Users, MessageSquarePlus, Search as SearchIcon } from 'lucide-react'; // Changed UserPlus to Users
+import { Loader2, Users, MessageSquarePlus, Search as SearchIcon } from 'lucide-react';
 
-interface FindUsersDialogProps { // Renamed props interface
+interface FindUsersDialogProps { 
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   onStartChatWithUser: (user: SearchedUser) => void;
   currentUserId: string | null;
 }
 
-export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithUser, currentUserId }: FindUsersDialogProps) { // Renamed component
+export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithUser, currentUserId }: FindUsersDialogProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [allFetchedUsers, setAllFetchedUsers] = useState<SearchedUser[]>([]); // Store all initially fetched users
-  const [displayedUsers, setDisplayedUsers] = useState<SearchedUser[]>([]); // Users to display (filtered or all)
+  const [allFetchedUsers, setAllFetchedUsers] = useState<SearchedUser[]>([]);
+  const [displayedUsers, setDisplayedUsers] = useState<SearchedUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { toast } = useToast();
 
   const fetchUsers = useCallback(async (query?: string) => {
     if (!currentUserId) return;
@@ -50,10 +51,10 @@ export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithU
 
       if (responseData && Array.isArray(responseData.users)) {
         const users = responseData.users.filter((user: SearchedUser) => user.id !== currentUserId);
-        if (!query) { // If it was an initial fetch (no query)
+        if (!query) { 
             setAllFetchedUsers(users);
         }
-        setDisplayedUsers(users); // Always update displayed users
+        setDisplayedUsers(users); 
       } else {
         console.warn("Search API response OK, but `users` array is missing or not an array:", responseData);
         setAllFetchedUsers([]);
@@ -71,12 +72,10 @@ export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithU
     }
   }, [currentUserId]);
 
-  // Initial fetch when dialog opens
   useEffect(() => {
     if (isOpen && currentUserId) {
-      fetchUsers(); // Fetch all users initially
+      fetchUsers(); 
     } else if (!isOpen) {
-      // Reset state when dialog closes
       setSearchQuery("");
       setAllFetchedUsers([]);
       setDisplayedUsers([]);
@@ -85,25 +84,21 @@ export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithU
     }
   }, [isOpen, currentUserId, fetchUsers]);
 
-  // Handle search input changes
   useEffect(() => {
     if (!isOpen) return;
 
     if (searchQuery.trim() === "") {
-        // If search is cleared, show all initially fetched users
         setDisplayedUsers(allFetchedUsers.filter((user: SearchedUser) => user.id !== currentUserId));
         setError(null);
         return;
     }
     
     if (searchQuery.trim().length < 2 && searchQuery.trim().length > 0) {
-      setDisplayedUsers([]); // Clear results for very short queries to avoid too many irrelevant results
+      setDisplayedUsers([]); 
       setError("Please enter at least 2 characters to search.");
       return;
     }
 
-
-    // Debounced search for specific queries
     const delayDebounceFn = setTimeout(async () => {
         if (searchQuery.trim().length >= 2) {
              fetchUsers(searchQuery.trim());
@@ -123,7 +118,7 @@ export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithU
     <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2"><Users /> Find Users / Start New Chat</AlertDialogTitle> {/* Updated Title */}
+          <AlertDialogTitle className="flex items-center gap-2"><Users /> Find Users / Start New Chat</AlertDialogTitle> 
           <AlertDialogDescription>
             Search for users to start a new chat. All registered users are discoverable.
           </AlertDialogDescription>
@@ -161,7 +156,7 @@ export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithU
                   >
                     <div className="flex items-center gap-3">
                       <Avatar className="h-9 w-9">
-                        <AvatarImage src={user.imageUrl} alt={user.username || user.primaryEmailAddress} data-ai-hint="profile avatar" />
+                        <AvatarImage src={user.imageUrl} alt={user.username || user.primaryEmailAddress || 'User'} data-ai-hint="profile avatar" />
                         <AvatarFallback>
                           {user.username?.[0]?.toUpperCase() || user.primaryEmailAddress?.[0]?.toUpperCase() || 'U'}
                         </AvatarFallback>
@@ -194,3 +189,5 @@ export default function FindUsersDialog({ isOpen, onOpenChange, onStartChatWithU
     </AlertDialog>
   );
 }
+
+    

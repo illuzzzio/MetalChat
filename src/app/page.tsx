@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MessageSquare, Lightbulb } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useUser, useAuth } from '@clerk/nextjs';
-import FindUsersDialog from '@/components/add-friend-dialog'; // Renamed import
+// FindUsersDialog is removed
 import CreateGroupDialog from '@/components/create-group-dialog';
 import ManageGroupMembersDialog from '@/components/manage-group-members-dialog';
 
@@ -46,7 +46,8 @@ export default function HomePage() {
   const router = useRouter();
   const [appUserProfile, setAppUserProfile] = useState<UserProfile | null>(null);
   const [hasMounted, setHasMounted] = useState(false);
-  const [isFindUsersDialogOpen, setIsFindUsersDialogOpen] = useState(false); // Renamed state
+  const [allOtherUsers, setAllOtherUsers] = useState<SearchedUser[]>([]); // New state for all discoverable users
+  // isFindUsersDialogOpen is removed
   const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
   const [isManageMembersDialogOpen, setIsManageMembersDialogOpen] = useState(false);
   const [conversationToManage, setConversationToManage] = useState<Conversation | null>(null);
@@ -78,7 +79,6 @@ export default function HomePage() {
       if (storedAppProfileString) {
         try {
           const parsedProfile: UserProfile = JSON.parse(storedAppProfileString);
-          // Ensure hiddenConversationIds is initialized
           if (!parsedProfile.hiddenConversationIds) {
             parsedProfile.hiddenConversationIds = [];
           }
@@ -94,7 +94,7 @@ export default function HomePage() {
             setAppUserProfile(fallbackProfile);
             localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`, JSON.stringify(fallbackProfile));
         }
-      } else { // First time after onboarding, or if LS was cleared
+      } else { 
         const initialProfile: UserProfile = {
             clerkUserId: clerkUserId,
             displayName: user?.fullName || user?.username || "User",
@@ -107,9 +107,37 @@ export default function HomePage() {
     }
   }, [router, hasMounted, isSignedIn, isClerkLoaded, clerkUserId, user]);
 
+  // Fetch ALL users for discovery
+  useEffect(() => {
+    if (!hasMounted || !clerkUserId || !appUserProfile) return;
+
+    const fetchAllUsers = async () => {
+      try {
+        const response = await fetch('/api/users/search'); // No query, should fetch all/default list
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || `Failed to fetch users: ${response.statusText}`);
+        }
+        const data = await response.json();
+        if (data && Array.isArray(data.users)) {
+          setAllOtherUsers(data.users.filter((u: SearchedUser) => u.id !== clerkUserId));
+        } else {
+          setAllOtherUsers([]);
+          console.warn("Fetched users, but response.users was not an array:", data);
+        }
+      } catch (error) {
+        console.error("Error fetching all users:", error);
+        toast({ title: "Error Fetching Users", description: (error as Error).message, variant: "destructive" });
+        setAllOtherUsers([]);
+      }
+    };
+    fetchAllUsers();
+  }, [hasMounted, clerkUserId, appUserProfile, toast]);
+
+
   // Fetch conversations from Firestore
   useEffect(() => {
-    if (!hasMounted || !clerkUserId || !user || !appUserProfile) return; // Wait for appUserProfile too
+    if (!hasMounted || !clerkUserId || !user || !appUserProfile) return; 
 
     const conversationsRef = collection(db, "conversations");
     const userConversationsQuery = query(
@@ -122,39 +150,39 @@ export default function HomePage() {
       const fetchedUserConversations: Conversation[] = [];
       querySnapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        // Filter out hidden conversations
-        if (!appUserProfile.hiddenConversationIds?.includes(docSnap.id)) {
-            fetchedUserConversations.push({
-                id: docSnap.id,
-                name: data.name || "Unnamed Chat",
-                avatarUrl: data.avatarUrl || `https://placehold.co/100x100.png?text=${data.name?.[0]?.toUpperCase() || 'C'}`,
-                dataAiHint: data.dataAiHint || (data.isGroup ? "group chat" : "person chat"),
-                lastMessage: data.lastMessage || "No messages yet.",
-                timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-                messages: [], 
-                isGroup: data.isGroup !== undefined ? data.isGroup : true,
-                isSelfChat: data.isSelfChat || false,
-                createdBy: data.createdBy,
-                members: data.members || [],
-                participantDetails: data.participantDetails || {},
-            });
-        }
+        // Client-side filtering for hidden conversations is handled by `displayedConversations` memo
+        fetchedUserConversations.push({
+            id: docSnap.id,
+            name: data.name || "Unnamed Chat",
+            avatarUrl: data.avatarUrl || `https://placehold.co/100x100.png?text=${data.name?.[0]?.toUpperCase() || 'C'}`,
+            dataAiHint: data.dataAiHint || (data.isGroup ? "group chat" : "person chat"),
+            lastMessage: data.lastMessage || "No messages yet.",
+            timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
+            messages: [], 
+            isGroup: data.isGroup !== undefined ? data.isGroup : true,
+            isSelfChat: data.isSelfChat || false,
+            createdBy: data.createdBy,
+            members: data.members || [],
+            participantDetails: data.participantDetails || {},
+        });
       });
       
       setConversations(prevConvos => {
-        const globalChat = initialGlobalConversation; // Keep global chat separate from hidden filter
+        const globalChat = initialGlobalConversation; 
         const combined = [...fetchedUserConversations, globalChat]
           .filter((convo, index, self) => index === self.findIndex((c) => c.id === convo.id))
           .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         
         if (!selectedConversationId && combined.length > 0) {
-          const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID && !c.isSelfChat);
-          const selfChat = combined.find(c => c.isSelfChat);
-          setSelectedConversationId(selfChat?.id || firstUserChat?.id || combined[0]?.id || null);
-        } else if (selectedConversationId && !combined.find(c => c.id === selectedConversationId)) {
-          const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID && !c.isSelfChat);
-           const selfChat = combined.find(c => c.isSelfChat);
-          setSelectedConversationId(selfChat?.id || firstUserChat?.id || combined[0]?.id || null);
+          const selfChat = combined.find(c => c.isSelfChat && !appUserProfile.hiddenConversationIds?.includes(c.id));
+          const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID && !c.isSelfChat && !appUserProfile.hiddenConversationIds?.includes(c.id));
+          const firstVisible = combined.find(c => !appUserProfile.hiddenConversationIds?.includes(c.id));
+          setSelectedConversationId(selfChat?.id || firstUserChat?.id || firstVisible?.id || null);
+        } else if (selectedConversationId && !combined.find(c => c.id === selectedConversationId && !appUserProfile.hiddenConversationIds?.includes(c.id))) {
+           const selfChat = combined.find(c => c.isSelfChat && !appUserProfile.hiddenConversationIds?.includes(c.id));
+          const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID && !c.isSelfChat && !appUserProfile.hiddenConversationIds?.includes(c.id));
+           const firstVisible = combined.find(c => !appUserProfile.hiddenConversationIds?.includes(c.id));
+          setSelectedConversationId(selfChat?.id || firstUserChat?.id || firstVisible?.id || null);
         }
         return combined;
       });
@@ -295,15 +323,15 @@ export default function HomePage() {
         hiddenConversationIds: appUserProfile.hiddenConversationIds.filter(id => id !== conversationId),
       };
       setAppUserProfile(updatedProfile);
-      localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`, JSON.stringify(updatedProfile));
-      // Force re-fetch or re-filter of conversations to make it appear
-      // This is implicitly handled by the main conversation useEffect dependency on appUserProfile
+      if (clerkUserId) {
+        localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`, JSON.stringify(updatedProfile));
+      }
     }
   }, [appUserProfile, clerkUserId]);
 
   const handleSelectConversation = (id: string) => {
     setSelectedConversationId(id);
-    unhideConversation(id); // Unhide when selected
+    unhideConversation(id); 
   };
 
   const handleAddIdea = (idea: Idea) => {
@@ -437,7 +465,7 @@ export default function HomePage() {
 
       await addDoc(messagesRef, finalMessageData);
       await updateDoc(conversationRef, { lastMessage: displayLastMessage, timestamp: serverTimestamp() });
-      unhideConversation(conversationId); // Unhide on send
+      unhideConversation(conversationId); 
       
       const currentConvo = conversations.find(c => c.id === conversationId);
       if (type === 'text' && finalMessageData.sender === 'user' && currentConvo && !currentConvo.isSelfChat && currentConvo.isGroup) { 
@@ -507,7 +535,7 @@ export default function HomePage() {
       
        const currentConvo = conversations.find(c => c.id === conversationId);
        if (currentConvo) {
-         const visibleMessages = currentConvo.messages.filter(m => m.id !== messageId && !m.isDeleted && !m.deletedForUserIds?.includes(clerkUserId));
+         const visibleMessages = currentConvo.messages.filter(m => m.id !== messageId && !m.isDeleted && !m.deletedForUserIds?.includes(clerkUserId || ''));
          const newLastMessageText = visibleMessages.length > 0 ? (visibleMessages[visibleMessages.length - 1].text || "Media Content") : "No messages yet.";
          await updateDoc(doc(db, "conversations", conversationId), { lastMessage: newLastMessageText, timestamp: serverTimestamp() });
        }
@@ -565,7 +593,7 @@ export default function HomePage() {
 
     try {
       await setDoc(newConversationRef, newConversationData);
-      unhideConversation(newConversationId); // Unhide if it was somehow hidden
+      unhideConversation(newConversationId); 
       setSelectedConversationId(newConversationId);
       toast({ title: "Group Created", description: `Group "${groupName}" is ready.` });
       setIsCreateGroupDialogOpen(false); 
@@ -588,7 +616,7 @@ export default function HomePage() {
 
     try {
         const docSnap = await getDoc(chatDocRef);
-        unhideConversation(chatID); // Unhide if it was hidden
+        unhideConversation(chatID); 
         if (docSnap.exists()) {
             setSelectedConversationId(chatID);
             toast({ title: "Chat Opened", description: `Opened existing chat with ${targetUser.username || targetUser.primaryEmailAddress}.`});
@@ -625,7 +653,7 @@ export default function HomePage() {
             setSelectedConversationId(chatID);
             toast({ title: "Chat Started!", description: `You can now chat with ${targetUserDetails.displayName}.`});
         }
-        setIsFindUsersDialogOpen(false); 
+        // No dialog to close here anymore
     } catch (error) {
         console.error("Error starting 1-on-1 chat:", error);
         const err = error as Error;
@@ -645,7 +673,7 @@ export default function HomePage() {
         localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`, JSON.stringify(updatedProfile));
         toast({title: "Chat Hidden", description: "The chat won't appear in your list until you interact with it again."});
         if (selectedConversationId === conversationId) {
-            setSelectedConversationId(null); // Deselect if currently selected
+            setSelectedConversationId(null); 
         }
     }
   };
@@ -740,17 +768,29 @@ export default function HomePage() {
      router.push('/onboarding');
      return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Redirecting to onboarding...</p></div>;
   }
-  if (!appUserProfile) { // Wait for appUserProfile to be loaded
+  if (!appUserProfile) { 
     return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Loading user profile...</p></div>;
   }
 
 
   const selectedConversation = conversations.find(c => c.id === selectedConversationId) || null;
-  // Filtered conversations for display, respecting hiddenConversationIds
+  
   const displayedConversations = conversations.filter(convo => 
-    convo.id === SHARED_CONVERSATION_ID || // Always show global
-    convo.isSelfChat || // Always show self-chat
+    convo.id === SHARED_CONVERSATION_ID || 
+    convo.isSelfChat || 
     !appUserProfile.hiddenConversationIds?.includes(convo.id)
+  );
+
+  // Filter allOtherUsers to exclude those who already have an active 1-on-1 chat
+  const activeOneOnOneChatUserIds = new Set(
+    displayedConversations
+      .filter(c => !c.isGroup && !c.isSelfChat && c.members && c.members.length === 2)
+      .map(c => c.members?.find(memberId => memberId !== clerkUserId))
+      .filter(id => !!id)
+  );
+  
+  const otherAvailableUsersToChat = allOtherUsers.filter(
+    u => !activeOneOnOneChatUserIds.has(u.id)
   );
 
 
@@ -763,9 +803,10 @@ export default function HomePage() {
           onSelectConversation={handleSelectConversation}
           onOpenCreateGroupDialog={() => setIsCreateGroupDialogOpen(true)}
           currentUserId={clerkUserId}
-          onOpenFindUsersDialog={() => setIsFindUsersDialogOpen(true)} // Renamed prop
           appUserProfile={appUserProfile} 
-          onHideConversation={handleHideConversation} // Pass hide handler
+          onHideConversation={handleHideConversation} 
+          allOtherUsers={otherAvailableUsersToChat} // Pass filtered list
+          onStartChatWithUser={handleStartChatWithUser} // Pass handler
         />
       </div>
       <div className="flex-1 h-full">
@@ -785,12 +826,13 @@ export default function HomePage() {
               onDeleteMessageForMe={handleDeleteMessageForMe}
               onDeleteMessageForEveryone={handleDeleteMessageForEveryone}
               allConversationsForSheet={displayedConversations}
+              allOtherUsersForSheet={otherAvailableUsersToChat}
+              onStartChatWithUserForSheet={handleStartChatWithUser}
               onSelectConversationForSheet={handleSelectConversation}
               onOpenCreateGroupDialogForSheet={() => setIsCreateGroupDialogOpen(true)}
-              onOpenFindUsersDialogForSheet={() => setIsFindUsersDialogOpen(true)} // Renamed prop
               appUserProfileForSheet={appUserProfile}
               onOpenManageMembersDialogForSheet={handleOpenManageMembersDialog} 
-              onHideConversationForSheet={handleHideConversation} // Pass hide handler for sheet
+              onHideConversationForSheet={handleHideConversation} 
             />
           </TabsContent>
           <TabsContent value="ideas" className="flex-1 overflow-y-auto p-4">
@@ -798,21 +840,14 @@ export default function HomePage() {
           </TabsContent>
         </Tabs>
       </div>
-      {clerkUserId && (
-        <FindUsersDialog // Renamed component usage
-            isOpen={isFindUsersDialogOpen} 
-            onOpenChange={setIsFindUsersDialogOpen}
-            onStartChatWithUser={handleStartChatWithUser}
-            currentUserId={clerkUserId}
-        />
-      )}
+      {/* FindUsersDialog is removed */}
       {clerkUserId && user && appUserProfile && (
         <CreateGroupDialog
             isOpen={isCreateGroupDialogOpen}
             onOpenChange={setIsCreateGroupDialogOpen}
             onCreateGroup={handleCreateNewGroupConversation}
             currentUserId={clerkUserId}
-            allConversations={conversations} // Pass unfiltered conversations for member selection
+            allConversations={conversations} 
             currentUserAppProfile={appUserProfile}
         />
       )}
@@ -822,7 +857,7 @@ export default function HomePage() {
             onOpenChange={setIsManageMembersDialogOpen}
             conversation={conversationToManage}
             currentUserId={clerkUserId}
-            allConversations={conversations} // Pass unfiltered for potential new members
+            allConversations={conversations} 
             onAddMembersToGroup={handleAddMembersToGroup}
             onRemoveMemberFromGroup={handleRemoveMemberFromGroup}
         />
@@ -830,3 +865,5 @@ export default function HomePage() {
     </div>
   );
 }
+
+    
