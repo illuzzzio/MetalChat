@@ -4,7 +4,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Send, Image as ImageIcon, Paperclip, Volume2, Video, Brain, Mic, StopCircle, Play } from "lucide-react";
+import { Send, Image as ImageIcon, Paperclip, Volume2, Video, Brain, Mic, StopCircle, Play, Copy, Trash2, Download } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -12,7 +12,6 @@ import { playSendSound, initTone, addToneStartListener } from '@/lib/sounds';
 import type { Message, Idea } from '@/types/chat';
 import { metalAIImageGenerate } from '@/ai/flows/metalai-image-gen-flow';
 import { Textarea } from '@/components/ui/textarea';
-import { Progress } from '@/components/ui/progress';
 
 interface ChatInputProps {
   onSendMessage: (
@@ -25,9 +24,10 @@ interface ChatInputProps {
   ) => void;
   conversationId: string | null;
   onAddIdea: (idea: Idea) => void;
+  currentUserId: string | null; // Added to associate messages with a user
 }
 
-export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: ChatInputProps) {
+export default function ChatInput({ onSendMessage, conversationId, onAddIdea, currentUserId }: ChatInputProps) {
   const [messageText, setMessageText] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
@@ -36,7 +36,6 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
   const [imageGenPrompt, setImageGenPrompt] = useState("");
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
 
-  // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -45,29 +44,31 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
   const [recordingTime, setRecordingTime] = useState(0);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
 
   useEffect(() => {
-    const initializeAudio = async () => {
-      await initTone();
-    };
+    const initializeAudio = async () => { await initTone(); };
     initializeAudio();
     const removeListeners = addToneStartListener();
 
-    // Check for microphone permission on mount
     navigator.permissions?.query({ name: 'microphone' as PermissionName }).then(permissionStatus => {
       setHasMicPermission(permissionStatus.state === 'granted');
       permissionStatus.onchange = () => {
         setHasMicPermission(permissionStatus.state === 'granted');
       };
+    }).catch(() => {
+        // Permissions API might not be supported (e.g. older browsers, or specific contexts like http)
+        // We can assume null and let the getUserMedia call handle it.
+        setHasMicPermission(null); 
     });
     
     return removeListeners;
   }, []);
 
   const handleSendMessageClick = () => {
-    if (!conversationId) {
-      toast({ title: "Error", description: "No conversation selected.", variant: "destructive" });
+    if (!conversationId || !currentUserId) {
+      toast({ title: "Error", description: "No conversation selected or user not identified.", variant: "destructive" });
       return;
     }
     if (!messageText.trim()) return;
@@ -95,8 +96,8 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
           timestamp: new Date().toISOString(),
         };
         onAddIdea(newIdea);
-        playSendSound(); // Optional: sound for idea generation
-        toast({ title: "Image Generated", description: "MetalAI has generated an image! Check Idea Storage." });
+        playSendSound();
+        toast({ title: "Image Generated!", description: "MetalAI created an image. Check your Idea Storage." });
       } else {
         toast({ title: "Image Generation Failed", description: result.error || "Could not generate image.", variant: "destructive" });
       }
@@ -111,7 +112,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && conversationId) {
+    if (file && conversationId && currentUserId) {
       let fileType: Message['type'] = 'image'; 
       if (file.type.startsWith('audio/')) fileType = 'audio';
       else if (file.type.startsWith('video/')) fileType = 'video';
@@ -148,12 +149,11 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
       };
 
       mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // or 'audio/wav' etc.
-        setAudioBlob(audioBlob);
-        const url = URL.createObjectURL(audioBlob);
+        const audioBlobData = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(audioBlobData);
+        const url = URL.createObjectURL(audioBlobData);
         setAudioUrl(url);
-        // Clean up stream tracks
-        stream.getTracks().forEach(track => track.stop());
+        stream.getTracks().forEach(track => track.stop()); // Stop tracks to release mic
       };
 
       mediaRecorderRef.current.start();
@@ -177,12 +177,11 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
       setIsRecording(false);
       if(recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
       toast({ title: "Recording Stopped", description: `Duration: ${formatTime(recordingTime)}`});
-
     }
   };
 
   const handleSendAudio = () => {
-    if (audioBlob && conversationId) {
+    if (audioBlob && conversationId && currentUserId) {
       const audioFile = new File([audioBlob], `recording-${Date.now()}.webm`, { type: audioBlob.type });
       onSendMessage(conversationId, audioFile.name, 'audio', audioFile, undefined, recordingTime);
       playSendSound();
@@ -197,6 +196,30 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
     const secs = seconds % 60;
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+  const handlePaste = useCallback((event: React.ClipboardEvent<HTMLInputElement>) => {
+    if (!conversationId || !currentUserId) return;
+    const items = event.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf("image") !== -1) {
+          const blob = items[i].getAsFile();
+          if (blob) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              if (e.target?.result && typeof e.target.result === 'string') {
+                 onSendMessage(conversationId, `Pasted Image ${new Date().toISOString()}.png`, 'image', undefined, e.target.result);
+                 toast({ title: "Image Pasted", description: "Pasted image sent."});
+              }
+            };
+            reader.readAsDataURL(blob);
+            event.preventDefault(); // Prevent pasting text representation if any
+            break; 
+          }
+        }
+      }
+    }
+  }, [conversationId, onSendMessage, currentUserId, toast]);
 
 
   return (
@@ -239,7 +262,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-auto p-1 flex gap-1">
-              <Button variant="ghost" size="icon" onClick={triggerFileInput} title="Share Image">
+              <Button variant="ghost" size="icon" onClick={triggerFileInput} title="Share Image File">
                 <ImageIcon className="h-5 w-5" />
               </Button>
               <Button variant="ghost" size="icon" onClick={triggerFileInput} title="Share Audio File">
@@ -267,12 +290,20 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
           </Button>
 
           <Input
+            ref={inputRef}
             type="text"
             placeholder={isRecording ? "Recording audio..." : "Type a message to MetalChat..."}
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
+            onPaste={handlePaste}
             className="flex-1 rounded-full px-4 py-2 bg-input focus-visible:ring-accent"
-            disabled={isGeneratingImage || isRecording || !!audioUrl}
+            disabled={isGeneratingImage || isRecording || !!audioUrl || !conversationId}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && messageText.trim()) {
+                e.preventDefault(); // Prevent newline
+                // handleSendMessageClick(); // We removed enter-to-send
+              }
+            }}
           />
           <Button 
             variant="default" 
@@ -280,7 +311,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
             onClick={handleSendMessageClick}
             className="rounded-full bg-accent hover:bg-accent/90 text-accent-foreground"
             aria-label="Send message"
-            disabled={!messageText.trim() || isGeneratingImage || isRecording || !!audioUrl}
+            disabled={!messageText.trim() || isGeneratingImage || isRecording || !!audioUrl || !conversationId}
           >
             <Send className="h-5 w-5" />
           </Button>
@@ -288,7 +319,6 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
         <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,audio/*,video/*" />
       </div>
 
-      {/* Modal for AI Image Generation Prompt */}
       <AlertDialog open={isImageGenModalOpen} onOpenChange={setIsImageGenModalOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -307,7 +337,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
             />
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setImageGenPrompt("")}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => {setIsImageGenModalOpen(false); setImageGenPrompt("");}}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleActualImageGeneration} disabled={!imageGenPrompt.trim() || isGeneratingImage}>
               {isGeneratingImage ? "Generating..." : "Generate & Save to Ideas"}
             </AlertDialogAction>
@@ -325,4 +355,3 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea }: 
     </>
   );
 }
-
