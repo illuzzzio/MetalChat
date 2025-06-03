@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Conversation, Message } from "@/types/chat";
@@ -84,10 +85,12 @@ export default function ChatArea({ conversation, onSendMessage }: ChatAreaProps)
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="font-headline">Chat Summary</AlertDialogTitle>
-            <AlertDialogDescription className="max-h-[60vh]">
-              <ScrollArea className="h-full pr-2">
+            <AlertDialogDescription asChild className="max-h-[60vh]">
+              <div>
+                <ScrollArea className="h-full pr-2">
                  {summary}
-              </ScrollArea>
+                </ScrollArea>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
