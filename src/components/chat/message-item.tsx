@@ -105,4 +105,5 @@ export default function MessageItem({ message }: MessageItemProps) {
         </Avatar>
       )}
     </div>
-  
+  );
+}
