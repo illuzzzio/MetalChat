@@ -9,7 +9,7 @@ import IdeaList from "@/components/idea-storage/idea-list";
 import type { Conversation, Message, Idea, UserProfile, SearchedUser, ParticipantDetails } from "@/types/chat";
 import { initTone, addToneStartListener } from '@/lib/sounds';
 import { db } from '@/lib/firebase'; 
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp, doc, updateDoc, deleteDoc, getDoc, setDoc, where, writeBatch, arrayUnion, arrayRemove, deleteField } from "firebase/firestore";
 import { metalAIChat } from '@/ai/flows/metalai-chat-flow';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +18,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useUser, useAuth } from '@clerk/nextjs';
 import AddFriendDialog from '@/components/add-friend-dialog';
 import CreateGroupDialog from '@/components/create-group-dialog';
+import ManageGroupMembersDialog from '@/components/manage-group-members-dialog'; // New import
 
 
 const LOCAL_STORAGE_PROFILE_KEY_PREFIX = "metalChatUserProfile_";
@@ -49,6 +50,9 @@ export default function HomePage() {
   const [hasMounted, setHasMounted] = useState(false);
   const [isAddFriendDialogOpen, setIsAddFriendDialogOpen] = useState(false);
   const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
+  const [isManageMembersDialogOpen, setIsManageMembersDialogOpen] = useState(false); // New state
+  const [conversationToManage, setConversationToManage] = useState<Conversation | null>(null); // New state
+
 
   const { isSignedIn, user, isLoaded: isClerkLoaded } = useUser();
   const { userId: clerkUserId } = useAuth();
@@ -151,7 +155,7 @@ export default function HomePage() {
         };
         const newSelfChatData = {
           name: "You", // This name is mostly for Firestore viewing, sidebar will override
-          avatarUrl: selfUserAvatarUrl || `https://placehold.co/100x100.png?text=U`,
+          avatarUrl: selfUserAvatarUrl || `https://placehold.co/100x100.png?text=Y`,
           dataAiHint: "self note user",
           lastMessage: "Notes to self...",
           timestamp: serverTimestamp(),
@@ -167,12 +171,17 @@ export default function HomePage() {
         const existingData = docSnap.data();
         const selfUserDisplayName = appUserProfile?.displayName || user.fullName || user.username || "You";
         const selfUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
-        if (existingData.participantDetails?.[clerkUserId]?.displayName !== selfUserDisplayName ||
-            existingData.participantDetails?.[clerkUserId]?.avatarUrl !== (selfUserAvatarUrl || undefined) ||
-            existingData.avatarUrl !== (selfUserAvatarUrl || `https://placehold.co/100x100.png?text=U`)) {
+        const defaultAvatarPlaceholder = `https://placehold.co/100x100.png?text=Y`;
+        
+        const currentSelfDetails = existingData.participantDetails?.[clerkUserId];
+        const currentAvatar = existingData.avatarUrl;
+
+        if (currentSelfDetails?.displayName !== selfUserDisplayName ||
+            currentSelfDetails?.avatarUrl !== (selfUserAvatarUrl || undefined) || // Ensure undefined matches if photoURL is null/empty
+            currentAvatar !== (selfUserAvatarUrl || defaultAvatarPlaceholder) ) {
              updateDoc(selfChatDocRef, {
                 participantDetails: { [clerkUserId]: { displayName: selfUserDisplayName, avatarUrl: selfUserAvatarUrl || undefined } },
-                avatarUrl: selfUserAvatarUrl || `https://placehold.co/100x100.png?text=U`
+                avatarUrl: selfUserAvatarUrl || defaultAvatarPlaceholder
              }).catch(err => console.error("Error updating self chat details:", err));
         }
       }
@@ -273,7 +282,7 @@ export default function HomePage() {
     }
 
     const currentAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "User";
-    const currentUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl || undefined; // Prioritize appUserProfile.photoURL
+    const currentUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl || undefined; 
 
     // Handle global chat messages client-side for now
     if (conversationId === SHARED_CONVERSATION_ID) {
@@ -572,6 +581,81 @@ export default function HomePage() {
     }
   };
 
+  const handleOpenManageMembersDialog = (conversation: Conversation) => {
+    if (conversation.isGroup) {
+        setConversationToManage(conversation);
+        setIsManageMembersDialogOpen(true);
+    }
+  };
+
+  const handleAddMembersToGroup = async (conversationId: string, membersToAdd: Array<{ id: string; displayName: string; avatarUrl?: string }>) => {
+    if (!clerkUserId) return;
+    const conversationRef = doc(db, "conversations", conversationId);
+    
+    const newMemberIds = membersToAdd.map(m => m.id);
+    const newParticipantDetailsUpdates: { [key: string]: ParticipantDetails } = {};
+    membersToAdd.forEach(member => {
+        newParticipantDetailsUpdates[`participantDetails.${member.id}`] = {
+            displayName: member.displayName,
+            avatarUrl: member.avatarUrl || undefined,
+        };
+    });
+
+    try {
+        await updateDoc(conversationRef, {
+            members: arrayUnion(...newMemberIds),
+            ...newParticipantDetailsUpdates,
+            // Optional: Add a system message or update lastMessage
+            lastMessage: `${appUserProfile?.displayName || user?.username} added ${membersToAdd.length} new member(s).`,
+            timestamp: serverTimestamp(),
+        });
+        // Optionally, send a system message to the chat
+        // addDoc(collection(db, "conversations", conversationId, "messages"), { ...system message data ... });
+        toast({title: "Members Added", description: "Successfully added members to the group."});
+    } catch (error) {
+        console.error("Error adding members to group:", error);
+        toast({title: "Error", description: "Could not add members to the group.", variant: "destructive"});
+        throw error; // Re-throw to be caught by dialog
+    }
+  };
+
+  const handleRemoveMemberFromGroup = async (conversationId: string, memberIdToRemove: string) => {
+     if (!clerkUserId) return;
+    const conversationRef = doc(db, "conversations", conversationId);
+    const conversationDoc = await getDoc(conversationRef);
+    const currentConversationData = conversationDoc.data() as Conversation | undefined;
+
+    if (!currentConversationData) {
+        toast({title: "Error", description: "Group not found.", variant: "destructive"});
+        return;
+    }
+    if (currentConversationData.members && currentConversationData.members.length <= 1) {
+         toast({title: "Cannot Remove", description: "Group must have at least one member.", variant: "destructive"});
+         throw new Error("Group must have at least one member.");
+    }
+     if (memberIdToRemove === currentConversationData.createdBy && currentConversationData.members && currentConversationData.members.length <=1 ) { // Simplified rule for now
+         toast({title: "Cannot Remove", description: "The group creator cannot be removed if they are the last member.", variant: "destructive"});
+         throw new Error("Creator cannot be removed if last member.");
+     }
+
+
+    const updates: any = {
+        members: arrayRemove(memberIdToRemove),
+        [`participantDetails.${memberIdToRemove}`]: deleteField(),
+        lastMessage: `${currentConversationData.participantDetails?.[memberIdToRemove]?.displayName || 'A member'} was removed.`,
+        timestamp: serverTimestamp(),
+    };
+
+    try {
+        await updateDoc(conversationRef, updates);
+        toast({title: "Member Removed", description: "Successfully removed member from the group."});
+    } catch (error) {
+        console.error("Error removing member from group:", error);
+        toast({title: "Error", description: "Could not remove member from the group.", variant: "destructive"});
+        throw error; // Re-throw to be caught by dialog
+    }
+  };
+
 
   if (!hasMounted || !isClerkLoaded) {
     return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Initializing MetalChat...</p></div>;
@@ -619,7 +703,8 @@ export default function HomePage() {
               onSelectConversationForSheet={handleSelectConversation}
               onOpenCreateGroupDialogForSheet={() => setIsCreateGroupDialogOpen(true)}
               onOpenAddFriendDialogForSheet={() => setIsAddFriendDialogOpen(true)}
-              appUserProfileForSheet={appUserProfile} 
+              appUserProfileForSheet={appUserProfile}
+              onOpenManageMembersDialogForSheet={handleOpenManageMembersDialog} // New prop
             />
           </TabsContent>
           <TabsContent value="ideas" className="flex-1 overflow-y-auto p-4">
@@ -643,6 +728,17 @@ export default function HomePage() {
             currentUserId={clerkUserId}
             allConversations={conversations}
             currentUserAppProfile={appUserProfile}
+        />
+      )}
+      {clerkUserId && conversationToManage && (
+        <ManageGroupMembersDialog
+            isOpen={isManageMembersDialogOpen}
+            onOpenChange={setIsManageMembersDialogOpen}
+            conversation={conversationToManage}
+            currentUserId={clerkUserId}
+            allConversations={conversations}
+            onAddMembersToGroup={handleAddMembersToGroup}
+            onRemoveMemberFromGroup={handleRemoveMemberFromGroup}
         />
       )}
     </div>

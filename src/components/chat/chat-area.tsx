@@ -30,9 +30,10 @@ interface ChatAreaProps {
    // Props for mobile sheet in ChatHeader
   allConversationsForSheet?: Conversation[];
   onSelectConversationForSheet?: (id: string) => void;
-  onOpenCreateGroupDialogForSheet?: () => void; // Changed from onCreateConversationForSheet
+  onOpenCreateGroupDialogForSheet?: () => void; 
   onOpenAddFriendDialogForSheet?: () => void;
-  appUserProfileForSheet?: UserProfile | null; // For mobile sidebar
+  appUserProfileForSheet?: UserProfile | null; 
+  onOpenManageMembersDialogForSheet?: (conversation: Conversation) => void; // New prop
 }
 
 export default function ChatArea({ 
@@ -44,9 +45,10 @@ export default function ChatArea({
     onDeleteMessageForEveryone,
     allConversationsForSheet,
     onSelectConversationForSheet,
-    onOpenCreateGroupDialogForSheet, // Updated prop name
+    onOpenCreateGroupDialogForSheet, 
     onOpenAddFriendDialogForSheet,
-    appUserProfileForSheet
+    appUserProfileForSheet,
+    onOpenManageMembersDialogForSheet // New prop
 }: ChatAreaProps) {
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -170,10 +172,11 @@ export default function ChatArea({
         conversations={allConversationsForSheet}
         selectedConversationId={conversation?.id}
         onSelectConversation={onSelectConversationForSheet}
-        onOpenCreateGroupDialog={onOpenCreateGroupDialogForSheet} // Pass updated prop
+        onOpenCreateGroupDialog={onOpenCreateGroupDialogForSheet} 
         currentUserId={currentUserId}
         onOpenAddFriendDialog={onOpenAddFriendDialogForSheet}
         appUserProfile={appUserProfileForSheet} 
+        onOpenManageMembersDialog={onOpenManageMembersDialogForSheet} // Pass new prop
       />
       
       {conversation ? (

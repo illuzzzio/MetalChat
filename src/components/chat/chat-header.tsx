@@ -4,7 +4,7 @@
 import type { Conversation, UserProfile } from "@/types/chat";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
-import { Settings, TvMinimalPlay, Menu, LogOut } from "lucide-react"; // Changed ChevronLeft to Menu
+import { Settings, TvMinimalPlay, Menu, Users as UsersIcon } from "lucide-react"; // Changed ChevronLeft to Menu, added UsersIcon
 import SummarizeChatButton from "./summarize-chat-button";
 import Link from "next/link";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -14,7 +14,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import ChatSidebar from "./chat-sidebar"; // To render sidebar in sheet
-import { UserButton, useClerk } from "@clerk/nextjs";
+import { UserButton } from "@clerk/nextjs";
 import { useToast } from "@/hooks/use-toast";
 import React from "react";
 
@@ -26,10 +26,11 @@ interface ChatHeaderProps {
   conversations?: Conversation[]; 
   selectedConversationId?: string | null;
   onSelectConversation?: (id: string) => void;
-  onOpenCreateGroupDialog?: () => void; // Changed from onCreateConversation
+  onOpenCreateGroupDialog?: () => void; 
   currentUserId?: string | null;
   onOpenAddFriendDialog?: () => void;
-  appUserProfile?: UserProfile | null; // For mobile sidebar to get user's own avatar
+  appUserProfile?: UserProfile | null; 
+  onOpenManageMembersDialog?: (conversation: Conversation) => void; // New prop
 }
 
 export default function ChatHeader({ 
@@ -39,15 +40,14 @@ export default function ChatHeader({
   conversations: mobileSheetConversations,
   selectedConversationId: mobileSheetSelectedConvoId,
   onSelectConversation: mobileSheetOnSelectConvo,
-  onOpenCreateGroupDialog: mobileSheetOnOpenCreateGroupDialog, // Updated prop name
+  onOpenCreateGroupDialog: mobileSheetOnOpenCreateGroupDialog, 
   currentUserId: mobileSheetCurrentUserId,
   onOpenAddFriendDialog: mobileSheetOnOpenAddFriendDialog,
-  appUserProfile: mobileSheetAppUserProfile
+  appUserProfile: mobileSheetAppUserProfile,
+  onOpenManageMembersDialog // New prop
 }: ChatHeaderProps) {
   const isMobile = useIsMobile();
-  const { signOut } = useClerk();
   const { toast } = useToast();
-  const router = typeof window !== "undefined" ? require("next/navigation").useRouter() : null;
 
 
   const handleConfigureShader = () => {
@@ -70,7 +70,7 @@ export default function ChatHeader({
                   conversations={mobileSheetConversations || []} 
                   selectedConversationId={mobileSheetSelectedConvoId}
                   onSelectConversation={mobileSheetOnSelectConvo}
-                  onOpenCreateGroupDialog={mobileSheetOnOpenCreateGroupDialog} // Pass updated prop
+                  onOpenCreateGroupDialog={mobileSheetOnOpenCreateGroupDialog} 
                   currentUserId={mobileSheetCurrentUserId}
                   onOpenAddFriendDialog={mobileSheetOnOpenAddFriendDialog}
                   appUserProfile={mobileSheetAppUserProfile} 
@@ -78,13 +78,18 @@ export default function ChatHeader({
             </SheetContent>
           </Sheet>
         )}
-        <h2 className="text-xl font-headline font-semibold text-foreground truncate max-w-[calc(100%-250px)] sm:max-w-[calc(100%-200px)]">
+        <h2 className="text-xl font-headline font-semibold text-foreground truncate max-w-[calc(100%-300px)] sm:max-w-[calc(100%-250px)]">
           {conversation ? conversation.name : "Select a Chat"}
         </h2>
       </div>
       <div className="flex items-center gap-1 md:gap-2">
         {conversation && conversation.messages && conversation.messages.filter(m => !m.isDeleted && (!m.deletedForUserIds || !m.deletedForUserIds.includes(mobileSheetCurrentUserId || ""))).length > 0 && (
           <SummarizeChatButton onSummarize={onSummarize} />
+        )}
+        {conversation && conversation.isGroup && onOpenManageMembersDialog && (
+            <Button variant="ghost" size="icon" onClick={() => onOpenManageMembersDialog(conversation)} aria-label="Manage Group Members">
+                <UsersIcon className="h-5 w-5" />
+            </Button>
         )}
         <Button variant="ghost" size="icon" onClick={handleConfigureShader} aria-label="Configure Shaders (Placeholder)">
           <TvMinimalPlay className="h-5 w-5" />
