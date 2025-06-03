@@ -6,7 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { MessageSquareText, Search, PlusCircle, Users, Settings } from "lucide-react";
+import { MessageSquareText, Search, PlusCircle, Users, Settings, UserPlus, MessageCircle } from "lucide-react"; // Added UserPlus
 import { cn } from "@/lib/utils";
 import React, { useState, useEffect } from "react";
 import {
@@ -22,15 +22,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
+import { useUser } from "@clerk/nextjs"; // Import useUser
 
-
-interface ChatSidebarProps {
-  conversations: Conversation[];
-  selectedConversationId: string | null;
-  onSelectConversation: (id: string) => void;
-  onCreateConversation: (name: string) => void;
-  currentUserId: string | null;
-}
+const SELF_CHAT_ID_PREFIX = "self-";
 
 const ClientFormattedTime = ({ timestamp }: { timestamp: string }) => {
   const [formattedTime, setFormattedTime] = useState<string | null>(null);
@@ -46,16 +40,27 @@ const ClientFormattedTime = ({ timestamp }: { timestamp: string }) => {
   return <>{formattedTime || ""}</>;
 };
 
+interface ChatSidebarProps {
+  conversations: Conversation[];
+  selectedConversationId: string | null;
+  onSelectConversation: (id: string) => void;
+  onCreateConversation: (name: string) => void;
+  currentUserId: string | null;
+  onOpenAddFriendDialog: () => void;
+}
+
 export default function ChatSidebar({
   conversations,
   selectedConversationId,
   onSelectConversation,
   onCreateConversation,
-  currentUserId
+  currentUserId,
+  onOpenAddFriendDialog
 }: ChatSidebarProps) {
   const [newConversationName, setNewConversationName] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const { user } = useUser(); // Get Clerk user data
 
   const handleCreateNewConversation = () => {
     if (newConversationName.trim()) {
@@ -64,10 +69,18 @@ export default function ChatSidebar({
       setIsCreateDialogOpen(false);
     }
   };
+  
+  const selfChatId = currentUserId ? `${SELF_CHAT_ID_PREFIX}${currentUserId}` : null;
 
-  const filteredConversations = conversations.filter(convo => 
-    convo.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter conversations, ensuring "You" chat (self-chat) is handled if it exists
+  const filteredConversations = conversations.filter(convo => {
+    const nameMatch = convo.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const isSelfAndMatches = convo.isSelfChat && ("you".includes(searchTerm.toLowerCase()) || "message yourself".includes(searchTerm.toLowerCase()));
+    return nameMatch || isSelfAndMatches;
+  });
+  
+  // Ensure "You" chat is always available if user is logged in
+  const selfChatConversation: Conversation | undefined = conversations.find(c => c.id === selfChatId && c.isSelfChat);
 
 
   return (
@@ -85,42 +98,78 @@ export default function ChatSidebar({
         </div>
       </div>
       <ScrollArea className="flex-1">
-        {filteredConversations.length === 0 ? (
-          <div className="p-4 text-center text-muted-foreground font-body">
-            No conversations found.
-          </div>
-        ) : (
-          <nav className="p-2 space-y-1">
-            {filteredConversations.map((convo) => (
-              <button
-                key={convo.id}
-                onClick={() => onSelectConversation(convo.id)}
-                className={cn(
-                  "flex items-center w-full p-3 rounded-md text-left transition-colors duration-150 ease-in-out",
-                  selectedConversationId === convo.id
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "hover:bg-sidebar-accent/20 hover:text-sidebar-primary" 
-                )}
-              >
-                <Avatar className="h-10 w-10 mr-3">
-                  <AvatarImage src={convo.avatarUrl} alt={convo.name} data-ai-hint={convo.dataAiHint || "chat avatar"} />
-                  <AvatarFallback>{convo.name.substring(0, 1).toUpperCase()}</AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold font-body truncate">{convo.name}</p>
-                  <p className="text-xs text-muted-foreground truncate font-body">{convo.lastMessage}</p>
-                </div>
-                {convo.timestamp && (
-                    <span className="text-xs text-muted-foreground ml-2 self-start mt-1">
-                        <ClientFormattedTime timestamp={convo.timestamp} />
-                    </span>
-                )}
-              </button>
-            ))}
-          </nav>
-        )}
+        <nav className="p-2 space-y-1">
+          {/* Self Chat Item */}
+          {currentUserId && (
+            <button
+              key={selfChatId || 'self-chat-placeholder'}
+              onClick={() => selfChatId && onSelectConversation(selfChatId)}
+              disabled={!selfChatId}
+              className={cn(
+                "flex items-center w-full p-3 rounded-md text-left transition-colors duration-150 ease-in-out",
+                selectedConversationId === selfChatId
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/20 hover:text-sidebar-primary",
+                !selfChatId && "opacity-50 cursor-not-allowed"
+              )}
+            >
+              <Avatar className="h-10 w-10 mr-3">
+                <AvatarImage src={user?.imageUrl || undefined} alt="Your avatar" data-ai-hint="profile self" />
+                <AvatarFallback>{user?.firstName?.[0] || user?.username?.[0] || 'Y'}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold font-body truncate">Message Yourself</p>
+                <p className="text-xs text-muted-foreground truncate font-body">
+                  {selfChatConversation?.lastMessage || "Notes to self..."}
+                </p>
+              </div>
+              {selfChatConversation?.timestamp && (
+                  <span className="text-xs text-muted-foreground ml-2 self-start mt-1">
+                      <ClientFormattedTime timestamp={selfChatConversation.timestamp} />
+                  </span>
+              )}
+            </button>
+          )}
+
+          {/* Other Conversations */}
+          {filteredConversations.filter(c => !c.isSelfChat).map((convo) => ( // Exclude self-chat from this map
+            <button
+              key={convo.id}
+              onClick={() => onSelectConversation(convo.id)}
+              className={cn(
+                "flex items-center w-full p-3 rounded-md text-left transition-colors duration-150 ease-in-out",
+                selectedConversationId === convo.id
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "hover:bg-sidebar-accent/20 hover:text-sidebar-primary" 
+              )}
+            >
+              <Avatar className="h-10 w-10 mr-3">
+                <AvatarImage src={convo.avatarUrl} alt={convo.name} data-ai-hint={convo.dataAiHint || "chat avatar"} />
+                <AvatarFallback>{convo.name.substring(0, 1).toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold font-body truncate">{convo.name}</p>
+                <p className="text-xs text-muted-foreground truncate font-body">{convo.lastMessage}</p>
+              </div>
+              {convo.timestamp && (
+                  <span className="text-xs text-muted-foreground ml-2 self-start mt-1">
+                      <ClientFormattedTime timestamp={convo.timestamp} />
+                  </span>
+              )}
+            </button>
+          ))}
+           {filteredConversations.filter(c => !c.isSelfChat).length === 0 && !selfChatId && (
+             <div className="p-4 text-center text-muted-foreground font-body">
+                No conversations found.
+             </div>
+           )}
+        </nav>
       </ScrollArea>
       <div className="p-4 border-t border-sidebar-border space-y-2">
+          <Button variant="outline" className="w-full" onClick={onOpenAddFriendDialog}>
+            <UserPlus className="h-5 w-5 mr-2" />
+            Add Friend
+          </Button>
           <AlertDialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
             <AlertDialogTrigger asChild>
               <Button variant="default" className="w-full bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent/90">

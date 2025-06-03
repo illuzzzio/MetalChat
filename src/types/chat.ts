@@ -2,16 +2,18 @@
 export interface Message {
   id: string;
   text: string;
-  sender: 'user' | 'other' | 'metalAI';
+  sender: 'user' | 'metalAI'; // 'other' is removed as userId distinguishes users
   timestamp: string; 
   type: 'text' | 'image' | 'audio' | 'video';
-  fileUrl?: string;
-  fileName?: string;
+  fileUrl?: string | null; // Allow null for Firestore
+  fileName?: string | null; // Allow null for Firestore
   isLoading?: boolean;
-  duration?: number;
-  isDeleted?: boolean; // For "delete for everyone"
-  deletedForMe?: boolean; // Client-side only for "delete for me"
-  userId?: string; // ID of the user who sent the message
+  duration?: number | null; // Allow null for Firestore
+  isDeleted?: boolean;
+  deletedForUserIds?: string[]; // Array of user IDs for whom message is deleted
+  userId?: string; // Clerk User ID of the sender
+  userDisplayName?: string; // Display name of the sender at the time of message
+  userAvatarUrl?: string; // Avatar URL of the sender at the time of message
 }
 
 export interface Conversation {
@@ -22,8 +24,11 @@ export interface Conversation {
   lastMessage: string;
   timestamp: string;
   messages: Message[];
-  isGroup?: boolean; // To differentiate between direct chats and groups in the future
-  createdBy?: string; // User ID of the creator
+  isGroup?: boolean;
+  createdBy?: string; // Clerk User ID of the creator
+  createdByName?: string; // Display name of creator
+  isSelfChat?: boolean; // True if this is a "You" chat
+  // members?: string[]; // Array of Clerk User IDs (for future group management)
 }
 
 export interface Idea {
@@ -33,8 +38,9 @@ export interface Idea {
   timestamp: string;
 }
 
-// For onboarding and settings
+// For app-specific profile data stored potentially in localStorage
 export interface UserProfile {
+  clerkUserId: string; // Link to Clerk user
   displayName: string;
-  photoURL?: string; // Placeholder for now
+  photoURL?: string; // Local preview or override
 }

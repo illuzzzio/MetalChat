@@ -11,12 +11,10 @@ import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/types/chat';
 import { UserCircle, Camera } from 'lucide-react';
 import Image from 'next/image';
-import { v4 as uuidv4 } from 'uuid';
+import { useUser } from '@clerk/nextjs';
 
-
-const LOCAL_STORAGE_PROFILE_KEY = "metalChatUserProfile";
-const LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY = "metalChatOnboardingComplete";
-const LOCAL_STORAGE_USER_ID_KEY = "metalChatUserId";
+const LOCAL_STORAGE_PROFILE_KEY_PREFIX = "metalChatUserProfile_";
+const LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY_PREFIX = "metalChatOnboardingComplete_";
 
 export default function OnboardingPage() {
   const [displayName, setDisplayName] = useState('');
@@ -24,19 +22,37 @@ export default function OnboardingPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const router = useRouter();
   const { toast } = useToast();
+  const { user, isSignedIn, isLoaded } = useUser();
 
   useEffect(() => {
-    // If already onboarded, redirect to home
-    // Also check if userID exists, as it's part of onboarding now.
-    const onboardingComplete = localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY);
-    const userIdExists = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
+    if (!isLoaded) return; // Wait for Clerk to load
 
-    if (onboardingComplete === 'true' && userIdExists) {
-      router.push('/');
+    if (!isSignedIn) {
+      router.push('/sign-in'); // Should be handled by middleware, but good fallback
+      return;
     }
-  }, [router]);
+    
+    // If user is signed in and onboarding is already marked complete, redirect to home
+    const onboardingComplete = localStorage.getItem(`${LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY_PREFIX}${user?.id}`);
+    if (onboardingComplete === 'true') {
+      router.push('/');
+      return;
+    }
+
+    // Pre-fill with Clerk data if available
+    if (user) {
+      setDisplayName(user.fullName || user.username || '');
+      setPhotoPreview(user.imageUrl || null);
+    }
+  }, [router, user, isSignedIn, isLoaded]);
 
   const handleCompleteOnboarding = () => {
+    if (!user?.id) {
+        toast({ title: "Error", description: "User session not found. Please sign in again.", variant: "destructive" });
+        router.push('/sign-in');
+        return;
+    }
+
     if (!displayName.trim()) {
       toast({
         title: 'Display Name Required',
@@ -46,22 +62,18 @@ export default function OnboardingPage() {
       return;
     }
 
-    let userId = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
-    if (!userId) {
-      userId = uuidv4();
-      localStorage.setItem(LOCAL_STORAGE_USER_ID_KEY, userId);
-    }
-
     const profile: UserProfile = {
+      clerkUserId: user.id,
       displayName: displayName.trim(),
-      photoURL: photoPreview || undefined, // Save data URI if exists, otherwise undefined
+      photoURL: photoPreview || undefined, // Save data URI if exists from local selection
     };
 
-    localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(profile));
-    localStorage.setItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY, 'true');
+    // Store app-specific profile details with Clerk user ID suffix
+    localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${user.id}`, JSON.stringify(profile));
+    localStorage.setItem(`${LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY_PREFIX}${user.id}`, 'true');
     
     toast({
-      title: 'Welcome to MetalChat!',
+      title: `Welcome to MetalChat, ${displayName.trim()}!`,
       description: 'Your profile has been set up.',
     });
     router.push('/');
@@ -77,13 +89,17 @@ export default function OnboardingPage() {
       setProfilePhoto(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setPhotoPreview(reader.result as string); // This is a base64 data URI
+        setPhotoPreview(reader.result as string);
       };
       reader.readAsDataURL(file);
-      toast({ title: "Image Selected (Preview)", description: "Profile photo is currently a local preview."});
+      toast({ title: "Image Selected (Preview)", description: "Profile photo is currently a local preview. Actual upload is not implemented yet."});
     }
   };
 
+
+  if (!isLoaded || (isLoaded && !isSignedIn)) {
+    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Loading authentication...</p></div>;
+  }
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-zinc-900 p-4">
@@ -91,7 +107,7 @@ export default function OnboardingPage() {
         <CardHeader>
           <CardTitle className="text-2xl font-headline text-center">Welcome to MetalChat!</CardTitle>
           <CardDescription className="text-center">
-            Let's set up your profile. This helps others recognize you.
+            Let's set up your MetalChat profile. This overrides your default name if you wish.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -111,7 +127,7 @@ export default function OnboardingPage() {
             <div className="flex items-center gap-4">
                <div className="relative h-24 w-24 rounded-full bg-muted flex items-center justify-center overflow-hidden border-2 border-dashed border-border">
                 {photoPreview ? (
-                  <Image src={photoPreview} alt="Profile Preview" layout="fill" objectFit="cover" unoptimized={photoPreview.startsWith('data:')} />
+                  <Image src={photoPreview} alt="Profile Preview" layout="fill" objectFit="cover" unoptimized={photoPreview.startsWith('data:') || photoPreview.startsWith('blob:') || photoPreview.includes('img.clerk.com')} />
                 ) : (
                   <UserCircle className="h-12 w-12 text-muted-foreground" />
                 )}
@@ -120,7 +136,7 @@ export default function OnboardingPage() {
                     size="icon" 
                     className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity rounded-full"
                     onClick={() => document.getElementById('profilePhotoInput')?.click()}
-                    title="Upload photo"
+                    title="Upload photo (local preview)"
                     >
                     <Camera className="h-6 w-6 text-white"/>
                 </Button>
@@ -136,12 +152,12 @@ export default function OnboardingPage() {
                 Choose Image
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Profile photos are stored locally for preview. Full upload features coming soon.</p>
+            <p className="text-xs text-muted-foreground">Clerk profile image is used by default. This provides a local override preview. Full image upload feature coming soon.</p>
           </div>
         </CardContent>
         <CardFooter>
           <Button onClick={handleCompleteOnboarding} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
-            Get Started
+            Complete Setup
           </Button>
         </CardFooter>
       </Card>

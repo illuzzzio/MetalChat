@@ -9,18 +9,20 @@ import IdeaList from "@/components/idea-storage/idea-list";
 import type { Conversation, Message, Idea, UserProfile } from "@/types/chat";
 import { initTone, addToneStartListener } from '@/lib/sounds';
 import { db } from '@/lib/firebase'; 
-import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp, doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp, doc, updateDoc, deleteDoc, getDoc, setDoc, where } from "firebase/firestore";
 import { metalAIChat } from '@/ai/flows/metalai-chat-flow';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MessageSquare, Lightbulb, UserCircle } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid'; // For generating unique IDs
+import { MessageSquare, Lightbulb } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+import { useUser, useAuth } from '@clerk/nextjs';
+import AddFriendDialog from '@/components/add-friend-dialog';
 
-const SHARED_CONVERSATION_ID = "global-chat";
-const LOCAL_STORAGE_PROFILE_KEY = "metalChatUserProfile";
+
+const SHARED_CONVERSATION_ID = "global-chat"; // This will be less relevant with user-specific chats
+const LOCAL_STORAGE_PROFILE_KEY = "metalChatUserProfile"; // For app-specific display name/photo
 const LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY = "metalChatOnboardingComplete";
-const LOCAL_STORAGE_USER_ID_KEY = "metalChatUserId";
-
+const SELF_CHAT_PREFIX = "self-";
 
 const initialGlobalConversation: Conversation = {
   id: SHARED_CONVERSATION_ID,
@@ -34,88 +36,59 @@ const initialGlobalConversation: Conversation = {
 };
 
 const exampleConversations: Conversation[] = [
-  {
-    id: "dev-talk",
-    name: "Dev Team Sync",
-    avatarUrl: "https://placehold.co/100x100.png?text=DT",
-    dataAiHint: "development team",
-    lastMessage: "Let's discuss the new feature.",
-    timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 mins ago
-    messages: [
-        { id: 'dev-msg-1', text: "Hey team, how's the new UI coming along?", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 7).toISOString(), type: 'text', userId: 'user-dev-1' },
-        { id: 'dev-msg-2', text: "Making good progress! Should have a preview by EOD.", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 6).toISOString(), type: 'text', userId: 'user-dev-2' },
-    ],
-    isGroup: true,
-  },
-  {
-    id: "random-banter",
-    name: "Random Banter",
-    avatarUrl: "https://placehold.co/100x100.png?text=RB",
-    dataAiHint: "casual chat",
-    lastMessage: "Anyone seen that new movie?",
-    timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 mins ago
-    messages: [
-        { id: 'random-msg-1', text: "Weekend plans, anyone?", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 32).toISOString(), type: 'text', userId: 'user-random-1'},
-        { id: 'random-msg-2', text: "Thinking of hitting the beach if the weather holds up!", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 31).toISOString(), type: 'text', userId: 'user-random-2' },
-        { id: 'random-msg-3', text: "Anyone seen that new movie?", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), type: 'text', userId: 'user-random-1'},
-    ],
-    isGroup: true,
-  },
+  // Example conversations can be loaded if desired, or removed if chats are purely user-driven
 ];
 
 
 export default function HomePage() {
-  const [conversations, setConversations] = useState<Conversation[]>([initialGlobalConversation, ...exampleConversations]);
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(SHARED_CONVERSATION_ID);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [storedIdeas, setStoredIdeas] = useState<Idea[]>([]);
   const { toast } = useToast();
   const router = useRouter();
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [appUserProfile, setAppUserProfile] = useState<UserProfile | null>(null); // App-specific profile
   const [hasMounted, setHasMounted] = useState(false);
+  const [isAddFriendDialogOpen, setIsAddFriendDialogOpen] = useState(false);
+
+  const { isSignedIn, user, isLoaded: isClerkLoaded } = useUser();
+  const { userId: clerkUserId } = useAuth(); // clerkUserId can be null if not signed in
+
 
   useEffect(() => {
     setHasMounted(true);
   }, []);
 
-  // Initialize or retrieve user ID
+  // Onboarding and App-Specific Profile loading
   useEffect(() => {
-    if (!hasMounted) return; // Wait for client-side mount
-    let userId = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
-    if (!userId) {
-      userId = uuidv4();
-      localStorage.setItem(LOCAL_STORAGE_USER_ID_KEY, userId);
+    if (!hasMounted || !isClerkLoaded) return;
+
+    if (!isSignedIn) {
+      // Clerk middleware should handle redirect to sign-in if this page is protected
+      // router.push('/sign-in'); // This might conflict with Clerk's own redirection
+      return;
     }
-    setCurrentUserId(userId);
-  }, [hasMounted]);
-
-
-  // Onboarding and Profile loading
- useEffect(() => {
-    if (!hasMounted) return; // Wait for client-side mount
-
-    const onboardingComplete = localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY);
-    const storedUserId = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
-
-    if (onboardingComplete !== 'true' || !storedUserId) {
+    
+    // User is signed in with Clerk
+    const onboardingComplete = localStorage.getItem(`${LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY}_${clerkUserId}`);
+    if (onboardingComplete !== 'true') {
       router.push('/onboarding');
     } else {
-      const storedProfile = localStorage.getItem(LOCAL_STORAGE_PROFILE_KEY);
-      if (storedProfile) {
+      const storedAppProfile = localStorage.getItem(`${LOCAL_STORAGE_PROFILE_KEY}_${clerkUserId}`);
+      if (storedAppProfile) {
         try {
-            setUserProfile(JSON.parse(storedProfile));
+          setAppUserProfile(JSON.parse(storedAppProfile));
         } catch (e) {
-            console.error("Failed to parse profile, redirecting to onboarding", e);
-            localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY); // Clear corrupted data
-            localStorage.removeItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY); // Reset onboarding
-            router.push('/onboarding');
+          console.error("Failed to parse app profile from localStorage", e);
+          localStorage.removeItem(`${LOCAL_STORAGE_PROFILE_KEY}_${clerkUserId}`);
+          // Optionally reset onboarding if profile is corrupt and critical
+          // localStorage.removeItem(`${LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY}_${clerkUserId}`);
+          // router.push('/onboarding');
         }
-      } else {
-        // Should not happen if onboarding was complete & user ID exists, but as a fallback:
-        router.push('/onboarding');
       }
+      // If no app-specific profile, it's fine, we can rely on Clerk's data or defaults
     }
-  }, [router, hasMounted]);
+  }, [router, hasMounted, isSignedIn, isClerkLoaded, clerkUserId]);
+
 
   // Audio Init
   useEffect(() => {
@@ -125,53 +98,130 @@ export default function HomePage() {
     return removeListeners;
   }, []);
 
-  // Fetch conversations from Firestore (initial load and updates)
+  // Fetch conversations from Firestore (user-specific and general)
   useEffect(() => {
-    const conversationsRef = collection(db, "conversations");
-    const q = query(conversationsRef, orderBy("timestamp", "desc"));
+    if (!hasMounted || !clerkUserId) return;
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const fetchedConversations: Conversation[] = [];
+    const conversationsRef = collection(db, "conversations");
+    // Query for conversations created by the user OR where the user is a member (more complex, for later)
+    // For now, let's fetch conversations created by the user, and the global one.
+    // A more robust system would involve a 'members' array in conversation docs.
+    const userConversationsQuery = query(
+      conversationsRef, 
+      where("createdBy", "==", clerkUserId), 
+      orderBy("timestamp", "desc")
+    );
+    
+    // Also fetch the global chat if it exists (or create it)
+    // For "You" chat, it will be handled separately or via a special ID like `self-${clerkUserId}`
+
+    const unsubscribeUserConvos = onSnapshot(userConversationsQuery, (querySnapshot) => {
+      const fetchedUserConversations: Conversation[] = [];
       querySnapshot.forEach((docSnap) => {
         const data = docSnap.data();
-        fetchedConversations.push({
+        fetchedUserConversations.push({
           id: docSnap.id,
           name: data.name || "Unnamed Chat",
           avatarUrl: data.avatarUrl || `https://placehold.co/100x100.png?text=${data.name?.[0]?.toUpperCase() || 'C'}`,
           dataAiHint: data.dataAiHint || "chat group",
           lastMessage: data.lastMessage || "No messages yet.",
           timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-          messages: [], // Messages will be loaded when a conversation is selected
+          messages: [],
           isGroup: data.isGroup !== undefined ? data.isGroup : true,
           createdBy: data.createdBy,
+          isSelfChat: data.isSelfChat || false,
         });
       });
       
-      const allConvoIds = new Set(fetchedConversations.map(c => c.id));
-      const combinedConversations = [
-        ...fetchedConversations,
-        ...[initialGlobalConversation, ...exampleConversations].filter(ec => !allConvoIds.has(ec.id))
-      ];
-      
-      setConversations(combinedConversations.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-      
-      if (!selectedConversationId && combinedConversations.length > 0) {
-        setSelectedConversationId(combinedConversations[0].id);
-      } else if (selectedConversationId && !combinedConversations.find(c => c.id === selectedConversationId)) {
-        setSelectedConversationId(combinedConversations[0]?.id || null);
-      }
+      // Combine with initialGlobalConversation and ensure no duplicates if it's also in Firestore
+      setConversations(prevConvos => {
+        const existingIds = new Set(prevConvos.map(c => c.id));
+        const newConvos = [...fetchedUserConversations];
+
+        // Add global chat if not already present from user's created list
+        if (!newConvos.some(c => c.id === SHARED_CONVERSATION_ID)) {
+           // Consider fetching global chat from Firestore too, or simply adding the local version
+           // For now, let's assume global chat isn't user-created this way
+        }
+
+        // Filter out old versions of fetched convos if they were in prevConvos
+        const updatedConvos = prevConvos.filter(pc => !fetchedUserConversations.some(fc => fc.id === pc.id));
+        
+        const combined = [...newConvos, ...updatedConvos, initialGlobalConversation]
+          .filter((convo, index, self) => index === self.findIndex((c) => c.id === convo.id)) // Unique by ID
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        if (!selectedConversationId && combined.length > 0) {
+          setSelectedConversationId(combined[0].id);
+        } else if (selectedConversationId && !combined.find(c => c.id === selectedConversationId)) {
+          setSelectedConversationId(combined[0]?.id || null);
+        }
+        return combined;
+      });
 
     }, (error) => {
-      console.error("Error fetching conversations:", error);
-      toast({ title: "Error", description: "Could not fetch conversations.", variant: "destructive" });
+      console.error("Error fetching user conversations:", error);
+      toast({ title: "Error", description: "Could not fetch your conversations.", variant: "destructive" });
     });
-    return () => unsubscribe();
-  }, [toast, selectedConversationId]); // Added selectedConversationId to potentially re-evaluate if it becomes invalid
+    
+    // Add logic for fetching/creating "You" chat (self-chat)
+    const selfChatId = `${SELF_CHAT_PREFIX}${clerkUserId}`;
+    const selfChatDocRef = doc(db, "conversations", selfChatId);
+    getDoc(selfChatDocRef).then(docSnap => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const selfConvo = {
+          id: docSnap.id,
+          name: "You",
+          avatarUrl: user?.imageUrl || `https://placehold.co/100x100.png?text=U`,
+          dataAiHint: "self chat note",
+          lastMessage: data.lastMessage || "Notes to self...",
+          timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
+          messages: [],
+          isGroup: false,
+          createdBy: clerkUserId,
+          isSelfChat: true,
+        };
+        setConversations(prev => {
+          if (prev.find(c => c.id === selfConvo.id)) {
+            return prev.map(c => c.id === selfConvo.id ? {...c, ...selfConvo, messages: c.messages} : c)
+                       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          }
+          return [selfConvo, ...prev].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        });
+      } else {
+        // Create self-chat conversation if it doesn't exist
+        const newSelfChatData = {
+          name: "You",
+          avatarUrl: user?.imageUrl || `https://placehold.co/100x100.png?text=U`,
+          lastMessage: "Notes to self...",
+          timestamp: serverTimestamp(),
+          isGroup: false,
+          createdBy: clerkUserId,
+          isSelfChat: true,
+        };
+        setDoc(selfChatDocRef, newSelfChatData).then(() => {
+           const localSelfConvo: Conversation = {
+            id: selfChatId,
+            ...newSelfChatData,
+            timestamp: new Date().toISOString(), // client time for immediate display
+            messages: [],
+          };
+          setConversations(prev => [localSelfConvo, ...prev].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        });
+      }
+    });
+
+
+    return () => {
+      unsubscribeUserConvos();
+    };
+  }, [hasMounted, clerkUserId, toast, user?.imageUrl]);
+
 
   // Fetch messages for the selected conversation
   useEffect(() => {
-    if (!selectedConversationId) {
-        // Clear messages for all conversations if no conversation is selected
+    if (!selectedConversationId || !clerkUserId) {
         setConversations(prevConvos => prevConvos.map(c => ({ ...c, messages: [] })));
         return;
     }
@@ -186,22 +236,29 @@ export default function HomePage() {
         fetchedMessages.push({
           id: docSnap.id,
           text: data.text,
-          sender: data.sender,
+          sender: data.sender, // 'user', 'metalAI'
           timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
           type: data.type,
           fileUrl: data.fileUrl,
           fileName: data.fileName,
           duration: data.duration,
           isDeleted: data.isDeleted || false,
-          deletedForMe: data.deletedForMe?.[currentUserId || ''] || false, // More specific deletedForMe
-          userId: data.userId,
+          deletedForUserIds: data.deletedForUserIds || [], 
+          userId: data.userId, // Clerk User ID of the sender
+          userDisplayName: data.userDisplayName, // Store for display
+          userAvatarUrl: data.userAvatarUrl, // Store for display
         });
       });
 
       setConversations(prevConvos =>
         prevConvos.map(convo =>
           convo.id === selectedConversationId
-            ? { ...convo, messages: fetchedMessages, lastMessage: fetchedMessages[fetchedMessages.length -1]?.text || convo.lastMessage, timestamp: fetchedMessages[fetchedMessages.length -1]?.timestamp || convo.timestamp }
+            ? { 
+                ...convo, 
+                messages: fetchedMessages, 
+                lastMessage: fetchedMessages.length > 0 ? (fetchedMessages[fetchedMessages.length -1]?.text || "Media shared") : convo.lastMessage, 
+                timestamp: fetchedMessages.length > 0 ? (fetchedMessages[fetchedMessages.length -1]?.timestamp || convo.timestamp) : convo.timestamp 
+              }
             : convo
         ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       );
@@ -211,7 +268,7 @@ export default function HomePage() {
     });
 
     return () => unsubscribeMessages();
-  }, [selectedConversationId, toast, currentUserId]);
+  }, [selectedConversationId, toast, clerkUserId]);
 
   const handleSelectConversation = (id: string) => {
     setSelectedConversationId(id);
@@ -234,19 +291,27 @@ export default function HomePage() {
     imageDataUri?: string,
     duration?: number
   ) => {
-    if (!conversationId || !currentUserId) return;
+    if (!conversationId || !clerkUserId || !user) {
+        toast({ title: "Error", description: "Cannot send message. User not identified or not signed in.", variant: "destructive" });
+        return;
+    }
 
     const messagesRef = collection(db, "conversations", conversationId, "messages");
     const conversationRef = doc(db, "conversations", conversationId);
+    
+    const currentAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "User";
+    const currentUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
 
-    // Base message data, common to all types
+
     const messageData: Partial<Message> & { timestamp: any } = {
-        sender: 'user',
+        sender: 'user', // All messages sent by the human user are 'user'
         type,
         timestamp: serverTimestamp(),
-        userId: currentUserId,
+        userId: clerkUserId,
+        userDisplayName: currentAppDisplayName,
+        userAvatarUrl: currentUserAvatarUrl,
         isDeleted: false,
-        deletedForMe: {}, 
+        deletedForUserIds: [], 
     };
     
     let displayLastMessage = text;
@@ -256,40 +321,47 @@ export default function HomePage() {
     } else if (imageDataUri && type === 'image') {
         messageData.fileUrl = imageDataUri; 
         messageData.fileName = `Pasted Image ${new Date().toISOString()}.png`;
-        messageData.text = messageData.fileName; // Or keep empty if just image
-        displayLastMessage = "Image shared";
+        messageData.text = ""; // Pasted images don't have separate text
+        displayLastMessage = `${currentAppDisplayName} shared an image`;
     } else if (file) {
       // For true sharing, upload to Firebase Storage and use the URL.
-      // For now, use a local preview URL and toast a message.
-      const localUrl = URL.createObjectURL(file);
-      messageData.fileUrl = localUrl; 
+      // For now, use a local preview URL if it's not an image data URI
+      // This part needs to be expanded with actual Firebase Storage uploads for shared media
+      const localUrl = URL.createObjectURL(file); // This is temporary and local
+      messageData.fileUrl = localUrl; // Placeholder: Replace with Firebase Storage URL after upload
       messageData.fileName = file.name;
-      messageData.text = file.name; 
+      messageData.text = ""; 
       
       if (type === 'audio') {
-        displayLastMessage = "Audio message";
+        displayLastMessage = `${currentAppDisplayName} sent an audio message`;
         if (duration) messageData.duration = duration;
       } else if (type === 'video') {
-        displayLastMessage = "Video shared";
+        displayLastMessage = `${currentAppDisplayName} shared a video`;
       } else if (type === 'image') {
-        displayLastMessage = "Image shared";
+        displayLastMessage = `${currentAppDisplayName} shared an image`;
       }
+       toast({
+        title: `Local ${type} Preview`,
+        description: `"${file.name}" is shown locally. For others to see/hear, backend file upload is needed.`,
+        duration: 7000,
+      });
     } else if (type !== 'text') {
-      console.error("Attempted to send media message without file or imageDataUri");
       toast({ title: "Send Error", description: "Cannot send empty media message.", variant: "destructive"});
       return;
     }
     
-    // Ensure there's some content
-    if (!messageData.text && !messageData.fileUrl) { 
-      messageData.text = 'Media Content'; // Fallback text
-      displayLastMessage = 'Media Content';
+    if (!messageData.text && !messageData.fileUrl && type !== 'text') { 
+        messageData.text = 'Media Content';
+        displayLastMessage = `${currentAppDisplayName} shared media`;
+    }
+    if (type === 'text' && !messageData.text) { // Don't send empty text messages
+        return;
     }
 
 
     try {
-      const finalMessageData = { ...messageData }; // Ensure all required fields are present or explicitly null
-      if (!finalMessageData.text) finalMessageData.text = ""; // Ensure text is at least empty string
+      const finalMessageData = { ...messageData };
+      if (!finalMessageData.text) finalMessageData.text = "";
       if (!finalMessageData.fileUrl) finalMessageData.fileUrl = null;
       if (!finalMessageData.fileName) finalMessageData.fileName = null;
       if (!finalMessageData.duration) finalMessageData.duration = null;
@@ -301,7 +373,9 @@ export default function HomePage() {
         timestamp: serverTimestamp(),
       });
       
-      if (type === 'text' && finalMessageData.sender === 'user') {
+      // AI response logic for non-self chats
+      const currentConvo = conversations.find(c => c.id === conversationId);
+      if (type === 'text' && finalMessageData.sender === 'user' && currentConvo && !currentConvo.isSelfChat) {
         const loadingAiMessageId = `metalai-loading-${Date.now()}`;
          setConversations(prevConvos =>
             prevConvos.map(convo => {
@@ -315,7 +389,9 @@ export default function HomePage() {
                       timestamp: new Date().toISOString(),
                       type: 'text',
                       isLoading: true,
-                      userId: 'metalAI-bot'
+                      userId: 'metalAI-bot',
+                      userDisplayName: 'MetalAI',
+                      userAvatarUrl: 'https://placehold.co/40x40.png?text=AI&bg=accent&fc=accent-foreground'
                     }],
                 };
               }
@@ -324,9 +400,8 @@ export default function HomePage() {
           );
 
         try {
-          const currentConvo = conversations.find(c => c.id === conversationId);
           const chatHistoryForAI = currentConvo?.messages
-            .filter(msg => !msg.isLoading && (msg.sender === 'user' || msg.sender === 'metalAI') && msg.type === 'text' && !msg.isDeleted && (!msg.deletedForMe || !msg.deletedForMe[currentUserId]))
+            .filter(msg => !msg.isLoading && (msg.sender === 'user' || msg.sender === 'metalAI') && msg.type === 'text' && !msg.isDeleted && (!msg.deletedForUserIds || !msg.deletedForUserIds.includes(clerkUserId)))
             .slice(-10) 
             .map(msg => ({
               role: msg.sender === 'user' ? 'user' : 'model' as 'user' | 'model',
@@ -353,8 +428,10 @@ export default function HomePage() {
             type: 'text',
             timestamp: serverTimestamp(),
             userId: 'metalAI-bot',
+            userDisplayName: 'MetalAI',
+            userAvatarUrl: 'https://placehold.co/40x40.png?text=AI&bg=accent&fc=accent-foreground',
             isDeleted: false,
-            deletedForMe: {},
+            deletedForUserIds: [],
           });
           await updateDoc(conversationRef, {
             lastMessage: aiResponse.aiResponse,
@@ -381,60 +458,53 @@ export default function HomePage() {
             type: 'text',
             timestamp: serverTimestamp(),
             userId: 'metalAI-bot',
+            userDisplayName: 'MetalAI',
+            userAvatarUrl: 'https://placehold.co/40x40.png?text=AI&bg=accent&fc=accent-foreground',
             isDeleted: false,
-            deletedForMe: {},
+            deletedForUserIds: [],
           });
            await updateDoc(conversationRef, {
             lastMessage: "Sorry, I encountered an error.",
             timestamp: serverTimestamp(),
           });
         }
-      } else if ((type === 'image' || type === 'video' || type === 'audio') && (file || imageDataUri)) {
-         toast({
-            title: `${type.charAt(0).toUpperCase() + type.slice(1)} Sent (Local Preview)`,
-            description: `"${finalMessageData.fileName || 'Pasted content'}" is shown locally. For others to see/hear it, backend file upload is required.`,
-            duration: 7000,
-         });
       }
 
     } catch (error) {
       console.error("Error sending message:", error);
       toast({ title: "Send Error", description: `Could not send message. ${error instanceof Error ? error.message : ''}`, variant: "destructive" });
     }
-  }, [toast, conversations, currentUserId]); 
+  }, [toast, conversations, clerkUserId, user, appUserProfile]); 
 
   const handleDeleteMessageForMe = async (conversationId: string, messageId: string) => {
-    if (!currentUserId) return;
-    // This is a client-side only "hide". For persistence, we'd need to store this preference.
-    // For now, we update the local state and then update Firestore to mark it for this user.
-    setConversations(prevConvos =>
-        prevConvos.map(convo =>
-            convo.id === conversationId
-            ? {
-                ...convo,
-                messages: convo.messages.map(msg =>
-                    msg.id === messageId ? { ...msg, deletedForMe: { ...(msg.deletedForMe || {}), [currentUserId]: true } } : msg
-                ),
-                }
-            : convo
-        )
-    );
-    toast({ title: "Message Hidden", description: "The message is hidden in your view."});
+    if (!clerkUserId) return;
     
-    // Optionally, update Firestore to persist this "hide" for the user across sessions/devices
-    // This part can be complex if not carefully managed
-    // For simplicity, this example might skip persistent "delete for me" in Firestore to avoid complexity,
-    // or implement a basic version. Let's assume a simple local hide for now as per the earlier setup.
-    // To make it persistent:
-    // const messageRef = doc(db, "conversations", conversationId, "messages", messageId);
-    // await updateDoc(messageRef, {
-    //   [`deletedForMe.${currentUserId}`]: true
-    // });
+    const messageRef = doc(db, "conversations", conversationId, "messages", messageId);
+    const messageDoc = await getDoc(messageRef);
+    if (!messageDoc.exists()) return;
+
+    const messageData = messageDoc.data();
+    const updatedDeletedForUserIds = Array.isArray(messageData.deletedForUserIds) 
+      ? [...messageData.deletedForUserIds, clerkUserId] 
+      : [clerkUserId];
+    
+    await updateDoc(messageRef, {
+      deletedForUserIds: updatedDeletedForUserIds
+    });
+    toast({ title: "Message Hidden", description: "The message is hidden in your view."});
   };
 
   const handleDeleteMessageForEveryone = async (conversationId: string, messageId: string) => {
-    if (!conversationId || !messageId) return;
+    if (!conversationId || !messageId || !clerkUserId) return;
+    
     const messageRef = doc(db, "conversations", conversationId, "messages", messageId);
+    const messageSnap = await getDoc(messageRef);
+
+    if (!messageSnap.exists() || messageSnap.data()?.userId !== clerkUserId) {
+        toast({ title: "Deletion Failed", description: "You can only delete your own messages.", variant: "destructive" });
+        return;
+    }
+
     try {
       await updateDoc(messageRef, {
         text: "This message was deleted.",
@@ -443,40 +513,23 @@ export default function HomePage() {
         fileName: null,
         duration: null,
         isDeleted: true,
-        // Retain original sender, timestamp, userId if needed for audit, but clear content
       });
       toast({ title: "Message Deleted", description: "The message has been deleted for everyone."});
       
       const convoRef = doc(db, "conversations", conversationId);
-      const currentConvo = conversations.find(c => c.id === conversationId);
-      
-      if (currentConvo) {
-          const visibleMessages = currentConvo.messages.filter(m => {
-              if (m.id === messageId) return false; // The one being deleted
-              if (m.isDeleted) return false; // Already deleted for everyone
-              if (m.deletedForMe && m.deletedForMe[currentUserId || '']) return false; // Hidden by current user
-              return true;
-          });
-          
-          const latestVisibleMessageAfterDelete = visibleMessages.pop(); // Gets the new last message
-          
-          let newLastMessageText = "This message was deleted."; // Default if no other messages
-          if(latestVisibleMessageAfterDelete){
-            newLastMessageText = latestVisibleMessageAfterDelete.text as string;
-            if(latestVisibleMessageAfterDelete.type !== 'text' && latestVisibleMessageAfterDelete.fileName){
-                 newLastMessageText = latestVisibleMessageAfterDelete.fileName;
-            }
-          } else if (currentConvo.messages.filter(m => !m.isDeleted && (!m.deletedForMe || !m.deletedForMe[currentUserId || ''])).length === 0){
-             // No messages left at all
-             newLastMessageText = "No messages yet.";
-          }
-
-
+      // Update last message in conversation (complex logic, omitted for brevity here, needs to find new last visible message)
+      // For simplicity, we might just set it to "Message deleted" or leave as is for this example.
+      // A robust implementation would query the last non-deleted message.
+       const currentConvo = conversations.find(c => c.id === conversationId);
+       if (currentConvo) {
+         const visibleMessages = currentConvo.messages.filter(m => m.id !== messageId && !m.isDeleted && !m.deletedForUserIds?.includes(clerkUserId));
+         const newLastMessageText = visibleMessages.length > 0 ? (visibleMessages[visibleMessages.length - 1].text || "Media Content") : "No messages yet.";
          await updateDoc(convoRef, {
-            lastMessage: newLastMessageText,
-            timestamp: serverTimestamp() 
-        });
-      }
+           lastMessage: newLastMessageText,
+           timestamp: serverTimestamp()
+         });
+       }
+
 
     } catch (error) {
       console.error("Error deleting message for everyone:", error);
@@ -485,31 +538,34 @@ export default function HomePage() {
   };
   
   const handleCreateNewConversation = async (name: string) => {
-    if (!name.trim() || !currentUserId) {
+    if (!name.trim() || !clerkUserId) {
       toast({ title: "Error", description: "Conversation name cannot be empty or user not identified.", variant: "destructive" });
       return;
     }
     const newConversationId = uuidv4();
     const newConversationRef = doc(db, "conversations", newConversationId);
     
-    // Explicitly define all fields for the new conversation object
-    const newConversationData: Omit<Conversation, 'messages' | 'timestamp' | 'id'> & { id: string, timestamp: any, createdBy: string } = {
+    const currentAppDisplayName = appUserProfile?.displayName || user?.fullName || user?.username || "User";
+
+    const newConversationData: Omit<Conversation, 'messages' | 'timestamp' | 'id' | 'isSelfChat'> & { id: string, timestamp: any, createdBy: string, createdByName: string, isSelfChat: boolean } = {
       id: newConversationId,
       name,
       avatarUrl: `https://placehold.co/100x100.png?text=${name.substring(0,1).toUpperCase()}`,
       dataAiHint: "group chat",
       lastMessage: "Conversation created.",
       timestamp: serverTimestamp(),
-      isGroup: true,
-      createdBy: currentUserId,
+      isGroup: true, 
+      createdBy: clerkUserId,
+      createdByName: currentAppDisplayName, // For potential display later
+      isSelfChat: false,
     };
 
     try {
       await setDoc(newConversationRef, newConversationData);
       const localNewConvo: Conversation = {
-          ...newConversationData, // Spread to ensure all fields
-          messages: [], // Initialize with empty messages
-          timestamp: new Date().toISOString(), // Use client time for local state before Firestore timestamp resolves
+          ...newConversationData, 
+          messages: [],
+          timestamp: new Date().toISOString(),
       }
       setConversations(prev => [localNewConvo, ...prev].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
       setSelectedConversationId(newConversationId);
@@ -520,21 +576,24 @@ export default function HomePage() {
     }
   };
 
-  const selectedConversation = conversations.find(c => c.id === selectedConversationId) || null;
-  const displayName = userProfile?.displayName || currentUserId || "User";
 
+  const currentDisplayName = appUserProfile?.displayName || user?.fullName || user?.username || "User";
 
-  if (!hasMounted) {
+  if (!hasMounted || !isClerkLoaded) {
     return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Initializing MetalChat...</p></div>;
   }
 
-  if (!userProfile && localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY) === 'true') {
-    // This state means onboarding was done, but profile isn't loaded into state yet.
-    // The useEffect for onboarding (lines 78-96) should be handling this.
-    // This message indicates we are waiting for that effect to set userProfile or redirect.
-    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Loading MetalChat profile...</p></div>;
+  if (isClerkLoaded && !isSignedIn) {
+    // Clerk should redirect via middleware. This is a fallback or can show a custom message.
+    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Redirecting to sign-in...</p></div>;
+  }
+  
+  if (isSignedIn && localStorage.getItem(`${LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY}_${clerkUserId}`) !== 'true') {
+     return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Redirecting to onboarding...</p></div>;
   }
 
+
+  const selectedConversation = conversations.find(c => c.id === selectedConversationId) || null;
 
   return (
     <div className="flex h-screen w-screen overflow-hidden antialiased text-foreground bg-background">
@@ -544,7 +603,8 @@ export default function HomePage() {
           selectedConversationId={selectedConversationId}
           onSelectConversation={handleSelectConversation}
           onCreateConversation={handleCreateNewConversation}
-          currentUserId={currentUserId}
+          currentUserId={clerkUserId}
+          onOpenAddFriendDialog={() => setIsAddFriendDialogOpen(true)}
         />
       </div>
       <div className="flex-1 h-full">
@@ -560,8 +620,7 @@ export default function HomePage() {
               conversation={selectedConversation}
               onSendMessage={handleSendMessage}
               onAddIdea={handleAddIdea}
-              currentUserDisplayName={displayName}
-              currentUserId={currentUserId}
+              currentUserId={clerkUserId} // Pass Clerk User ID
               onDeleteMessageForMe={handleDeleteMessageForMe}
               onDeleteMessageForEveryone={handleDeleteMessageForEveryone}
             />
@@ -571,7 +630,7 @@ export default function HomePage() {
           </TabsContent>
         </Tabs>
       </div>
+      <AddFriendDialog isOpen={isAddFriendDialogOpen} onOpenChange={setIsAddFriendDialogOpen} />
     </div>
   );
 }
-

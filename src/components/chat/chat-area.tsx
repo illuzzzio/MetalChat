@@ -11,6 +11,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogContent, AlertDialogDescript
 import { useToast } from "@/hooks/use-toast";
 import { ScrollArea } from "../ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { useUser } from "@clerk/nextjs";
 
 interface ChatAreaProps {
   conversation: Conversation | null;
@@ -23,43 +24,52 @@ interface ChatAreaProps {
     duration?: number,
   ) => void;
   onAddIdea: (idea: Idea) => void;
-  currentUserDisplayName: string | null;
-  currentUserId: string | null;
+  currentUserId: string | null; // Clerk User ID
   onDeleteMessageForMe: (conversationId: string, messageId: string) => void;
   onDeleteMessageForEveryone: (conversationId: string, messageId: string) => void;
+   // Props for mobile sheet in ChatHeader
+  allConversationsForSheet?: Conversation[];
+  onSelectConversationForSheet?: (id: string) => void;
+  onCreateConversationForSheet?: (name: string) => void;
+  onOpenAddFriendDialogForSheet?: () => void;
 }
 
 export default function ChatArea({ 
     conversation, 
     onSendMessage, 
     onAddIdea, 
-    currentUserDisplayName,
-    currentUserId,
+    currentUserId, // This is Clerk User ID
     onDeleteMessageForMe,
-    onDeleteMessageForEveryone
+    onDeleteMessageForEveryone,
+    allConversationsForSheet,
+    onSelectConversationForSheet,
+    onCreateConversationForSheet,
+    onOpenAddFriendDialogForSheet
 }: ChatAreaProps) {
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const { toast } = useToast();
   const [isDragging, setIsDragging] = useState(false);
-  const dropZoneRef = useRef<HTMLDivElement>(null); // Ref for the entire chat area
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+  const { user } = useUser(); // For getting current user's display name if needed for summary
 
   const handleSummarizeChat = async () => {
-    if (!conversation || conversation.messages.filter(m => !m.isDeleted && !m.deletedForMe).length === 0) {
-      toast({ title: "Cannot Summarize", description: "No messages to summarize.", variant: "destructive" });
+    if (!conversation || !currentUserId || conversation.messages.filter(m => !m.isDeleted && !m.deletedForUserIds?.includes(currentUserId)).length === 0) {
+      toast({ title: "Cannot Summarize", description: "No messages to summarize or user not identified.", variant: "destructive" });
       return;
     }
 
     setIsSummaryLoading(true);
     const chatLog = conversation.messages
-      .filter(msg => !msg.isLoading && !msg.isDeleted && !msg.deletedForMe) 
+      .filter(msg => !msg.isLoading && !msg.isDeleted && !msg.deletedForUserIds?.includes(currentUserId)) 
       .map(msg => {
-        let senderName = 'System';
-        if (msg.sender === 'user') {
-          senderName = msg.userId === currentUserId ? (currentUserDisplayName || 'You') : 'Other User';
+        let senderName = msg.userDisplayName || 'System';
+        if (msg.sender === 'user' && msg.userId === currentUserId) {
+          senderName = user?.fullName || user?.username || msg.userDisplayName || 'You';
         } else if (msg.sender === 'metalAI') {
           senderName = 'MetalAI';
         }
+        // For other users, msg.userDisplayName should be used.
         return `${senderName}: ${msg.text}${msg.fileName ? ` [File: ${msg.fileName}]` : ''}`;
       })
       .join('\n');
@@ -87,7 +97,6 @@ export default function ChatArea({
   const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    // Check if the mouse is leaving the drop zone or entering a child element
     if (dropZoneRef.current && !dropZoneRef.current.contains(e.relatedTarget as Node)) {
         setIsDragging(false);
     }
@@ -108,7 +117,7 @@ export default function ChatArea({
         toast({ title: "Error", description: "No conversation selected.", variant: "destructive" });
         return;
     }
-    if (!currentUserId) {
+    if (!currentUserId) { // Clerk User ID
         toast({ title: "Error", description: "User not identified.", variant: "destructive" });
         return;
     }
@@ -116,7 +125,7 @@ export default function ChatArea({
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
       for (const file of Array.from(files)) {
-        let fileType: Message['type'] = 'image'; // Default
+        let fileType: Message['type'] = 'image'; 
         if (file.type.startsWith('audio/')) fileType = 'audio';
         else if (file.type.startsWith('video/')) fileType = 'video';
         else if (file.type.startsWith('image/')) fileType = 'image';
@@ -124,7 +133,8 @@ export default function ChatArea({
           toast({ title: "Unsupported File", description: `File type for "${file.name}" is not supported for drag & drop.`, variant: "destructive"});
           continue; 
         }
-        onSendMessage(conversation.id, file.name, fileType, file);
+        // Send file name as text for now, type identifies it as media
+        onSendMessage(conversation.id, file.name, fileType, file); 
       }
     }
   }, [conversation, onSendMessage, toast, currentUserId]);
@@ -153,13 +163,23 @@ export default function ChatArea({
         </div>
       )}
       
-      <ChatHeader conversation={conversation} onSummarize={handleSummarizeChat} />
+      <ChatHeader 
+        conversation={conversation} 
+        onSummarize={handleSummarizeChat}
+        // Pass sheet props
+        conversations={allConversationsForSheet}
+        selectedConversationId={conversation?.id}
+        onSelectConversation={onSelectConversationForSheet}
+        onCreateConversation={onCreateConversationForSheet}
+        currentUserId={currentUserId}
+        onOpenAddFriendDialog={onOpenAddFriendDialogForSheet}
+      />
       
       {conversation ? (
         <>
           <ChatMessages 
             messages={conversation.messages}
-            currentUserId={currentUserId}
+            currentUserId={currentUserId} // Pass Clerk User ID
             onDeleteMessageForMe={onDeleteMessageForMe}
             onDeleteMessageForEveryone={onDeleteMessageForEveryone}
             conversationId={conversation.id}
@@ -168,7 +188,7 @@ export default function ChatArea({
             onSendMessage={onSendMessage} 
             conversationId={conversation.id}
             onAddIdea={onAddIdea}
-            currentUserId={currentUserId}
+            currentUserId={currentUserId} // Pass Clerk User ID
           />
         </>
       ) : (

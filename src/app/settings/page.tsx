@@ -10,36 +10,50 @@ import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/types/chat';
 import { ArrowLeft, UserCircle, Camera } from 'lucide-react';
 import Link from 'next/link';
-import Image from 'next/image'; // For placeholder image
+import Image from 'next/image';
+import { useUser } from '@clerk/nextjs';
 
-const LOCAL_STORAGE_PROFILE_KEY = "metalChatUserProfile";
+const LOCAL_STORAGE_PROFILE_KEY_PREFIX = "metalChatUserProfile_";
 
 export default function SettingsPage() {
   const [displayName, setDisplayName] = useState('');
-  const [profilePhoto, setProfilePhoto] = useState<File | null>(null); 
+  const [profilePhotoFile, setProfilePhotoFile] = useState<File | null>(null); 
   const [photoPreview, setPhotoPreview] = useState<string | null>(null); 
   const { toast } = useToast();
+  const { user, isLoaded, isSignedIn } = useUser();
 
   useEffect(() => {
-    const storedProfile = localStorage.getItem(LOCAL_STORAGE_PROFILE_KEY);
+    if (!isLoaded) return;
+    if (!isSignedIn || !user) {
+        // Middleware should handle redirect
+        return;
+    }
+
+    // Load app-specific profile or fallback to Clerk's data
+    const storedProfile = localStorage.getItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${user.id}`);
     if (storedProfile) {
       try {
         const profile: UserProfile = JSON.parse(storedProfile);
         setDisplayName(profile.displayName);
-        if (profile.photoURL) {
-             // In a real app, this might be a URL to an uploaded image.
-             // For now, if it's a data URI from local selection, it could be set.
-            setPhotoPreview(profile.photoURL);
-        }
+        // Use stored preview if it exists, otherwise Clerk's image
+        setPhotoPreview(profile.photoURL || user.imageUrl || null);
       } catch (e) {
         console.error("Failed to parse profile from localStorage", e);
-        // Handle error or clear corrupted data
-        localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
+        setDisplayName(user.fullName || user.username || '');
+        setPhotoPreview(user.imageUrl || null);
       }
+    } else {
+      // No app-specific profile, use Clerk's data
+      setDisplayName(user.fullName || user.username || '');
+      setPhotoPreview(user.imageUrl || null);
     }
-  }, []);
+  }, [user, isLoaded, isSignedIn]);
 
   const handleSaveProfile = () => {
+    if (!user?.id) {
+        toast({ title: "Error", description: "User session not found.", variant: "destructive" });
+        return;
+    }
     if (!displayName.trim()) {
       toast({
         title: 'Error',
@@ -50,37 +64,47 @@ export default function SettingsPage() {
     }
 
     const updatedProfile: UserProfile = {
+      clerkUserId: user.id,
       displayName: displayName.trim(),
-      // If photoPreview is a data URI from a new selection, save it.
-      // If it's an existing URL, it's already set.
-      // Actual image upload to a server and getting a URL is needed for persistence across devices.
+      // photoPreview will contain the data URI of a newly selected local file,
+      // or the existing Clerk imageUrl if no new file was chosen.
       photoURL: photoPreview || undefined, 
     };
 
-    localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(updatedProfile));
+    localStorage.setItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${user.id}`, JSON.stringify(updatedProfile));
     toast({
       title: 'Profile Updated',
-      description: 'Your display name has been saved.',
+      description: 'Your display name and local photo preview have been saved.',
     });
-    // Consider window.dispatchEvent(new Event('profileUpdated')) if other components need immediate refresh.
+    // TODO: If Clerk's user metadata update is implemented, call it here.
+    // For example: await user.update({ unsafeMetadata: { appDisplayName: displayName.trim() } });
+    // And for photo: await user.setProfileImage({ file: profilePhotoFile }); if a new file was selected.
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      if (file.size > 2 * 1024 * 1024) { // Max 2MB for preview
-        toast({ title: "Image Too Large", description: "Please select an image smaller than 2MB for preview.", variant: "destructive"});
+      if (file.size > 2 * 1024 * 1024) { // Max 2MB for preview/upload
+        toast({ title: "Image Too Large", description: "Please select an image smaller than 2MB.", variant: "destructive"});
         return;
       }
-      setProfilePhoto(file); // Store the file object if you plan to upload it
+      setProfilePhotoFile(file); // Store the file object for potential upload
       const reader = new FileReader();
       reader.onloadend = () => {
         setPhotoPreview(reader.result as string); // This will be a data URI
       };
       reader.readAsDataURL(file);
-      toast({ title: "Image Selected (Preview)", description: "Image upload and saving across sessions is not fully implemented yet."});
+      toast({ title: "Image Selected (Local Preview)", description: "Image is previewed locally. Save changes to update. Actual upload to Clerk not yet implemented here."});
     }
   };
+  
+  if (!isLoaded) {
+    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Loading settings...</p></div>;
+  }
+  if (!isSignedIn) {
+    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Please sign in to view settings.</p></div>;
+  }
+
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-zinc-900 p-4">
@@ -96,7 +120,7 @@ export default function SettingsPage() {
             <div className="w-8"></div> {/* Spacer to balance the back button */}
           </div>
           <CardDescription className="text-center pt-2">
-            Manage your display name and profile picture.
+            Manage your MetalChat display name and profile picture.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -110,13 +134,14 @@ export default function SettingsPage() {
               onChange={(e) => setDisplayName(e.target.value)}
               className="bg-input focus-visible:ring-accent"
             />
+             <p className="text-xs text-muted-foreground">This name is specific to MetalChat and can differ from your Clerk profile.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="profilePhoto" className="font-semibold">Profile Photo (Local Preview)</Label>
             <div className="flex items-center gap-4">
               <div className="relative h-24 w-24 rounded-full bg-muted flex items-center justify-center overflow-hidden border-2 border-dashed border-border">
                 {photoPreview ? (
-                  <Image src={photoPreview} alt="Profile Preview" layout="fill" objectFit="cover" unoptimized={photoPreview.startsWith('data:')}/>
+                  <Image src={photoPreview} alt="Profile Preview" layout="fill" objectFit="cover" unoptimized={photoPreview.startsWith('data:') || photoPreview.startsWith('blob:') || photoPreview.includes('img.clerk.com')}/>
                 ) : (
                   <UserCircle className="h-12 w-12 text-muted-foreground" />
                 )}
@@ -125,7 +150,7 @@ export default function SettingsPage() {
                     size="icon" 
                     className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity rounded-full"
                     onClick={() => document.getElementById('profilePhotoInput')?.click()}
-                    title="Change photo"
+                    title="Change photo (local preview)"
                     >
                     <Camera className="h-6 w-6 text-white"/>
                 </Button>
@@ -141,7 +166,7 @@ export default function SettingsPage() {
                 Choose Image
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Profile photo is stored locally for preview. Full upload feature coming soon.</p>
+            <p className="text-xs text-muted-foreground">Changing photo here updates local preview. Actual Clerk profile image update not yet implemented via this page.</p>
           </div>
         </CardContent>
         <CardFooter>
