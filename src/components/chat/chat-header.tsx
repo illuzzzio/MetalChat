@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Conversation } from "@/types/chat";
+import type { Conversation, UserProfile } from "@/types/chat";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Settings, TvMinimalPlay, Menu, LogOut } from "lucide-react"; // Changed ChevronLeft to Menu
@@ -29,6 +29,7 @@ interface ChatHeaderProps {
   onCreateConversation?: (name: string) => void;
   currentUserId?: string | null;
   onOpenAddFriendDialog?: () => void;
+  appUserProfile?: UserProfile | null; // For mobile sidebar to get user's own avatar
 }
 
 export default function ChatHeader({ 
@@ -41,6 +42,7 @@ export default function ChatHeader({
   onCreateConversation: mobileSheetOnCreateConvo,
   currentUserId: mobileSheetCurrentUserId,
   onOpenAddFriendDialog: mobileSheetOnOpenAddFriendDialog,
+  appUserProfile: mobileSheetAppUserProfile
 }: ChatHeaderProps) {
   const isMobile = useIsMobile();
   const { signOut } = useClerk();
@@ -71,6 +73,7 @@ export default function ChatHeader({
                   onCreateConversation={mobileSheetOnCreateConvo}
                   currentUserId={mobileSheetCurrentUserId}
                   onOpenAddFriendDialog={mobileSheetOnOpenAddFriendDialog}
+                  appUserProfile={mobileSheetAppUserProfile} // Pass appUserProfile for mobile sidebar
                 />
             </SheetContent>
           </Sheet>

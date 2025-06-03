@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Conversation, ParticipantDetails } from "@/types/chat";
+import type { Conversation, ParticipantDetails, UserProfile } from "@/types/chat";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,7 @@ interface ChatSidebarProps {
   onCreateConversation: (name: string) => void; // For group chats
   currentUserId: string | null;
   onOpenAddFriendDialog: () => void;
+  appUserProfile: UserProfile | null; // Pass app user profile for avatar
 }
 
 export default function ChatSidebar({
@@ -60,7 +61,8 @@ export default function ChatSidebar({
   onSelectConversation,
   onCreateConversation, // This is for creating new GROUP chats
   currentUserId,
-  onOpenAddFriendDialog
+  onOpenAddFriendDialog,
+  appUserProfile
 }: ChatSidebarProps) {
   const [newConversationName, setNewConversationName] = useState("");
   const [isCreateGroupDialogOpen, setIsCreateGroupDialogOpen] = useState(false);
@@ -80,11 +82,13 @@ export default function ChatSidebar({
     if (convo.id === SHARED_CONVERSATION_ID) {
         return { name: convo.name, avatarUrl: convo.avatarUrl, dataAiHint: convo.dataAiHint || "group chat" };
     }
+    // For self-chat, prioritize appUserProfile photo, then Clerk's
     if (convo.isSelfChat && currentUserId && clerkUser) {
+      const selfAvatar = appUserProfile?.photoURL || clerkUser.imageUrl;
       return { 
         name: "You (Notes to self)", 
-        avatarUrl: clerkUser.imageUrl, 
-        dataAiHint: "self note" 
+        avatarUrl: selfAvatar, 
+        dataAiHint: "self note user" // Use the already prioritized avatar from convo object for simplicity
       };
     }
     if (!convo.isGroup && convo.members && convo.members.length === 2 && currentUserId && convo.participantDetails) {
@@ -97,7 +101,7 @@ export default function ChatSidebar({
         };
       }
     }
-    // Fallback for groups or if details are missing
+    // Fallback for groups or if details are missing, use convo.avatarUrl which should be pre-set with priority
     return { name: convo.name, avatarUrl: convo.avatarUrl, dataAiHint: convo.dataAiHint || (convo.isGroup ? "group team" : "chat direct") };
   };
 

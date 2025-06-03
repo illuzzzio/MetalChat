@@ -73,7 +73,8 @@ export default function HomePage() {
       const storedAppProfile = localStorage.getItem(`${LOCAL_STORAGE_PROFILE_KEY_PREFIX}${clerkUserId}`);
       if (storedAppProfile) {
         try {
-          setAppUserProfile(JSON.parse(storedAppProfile));
+          const parsedProfile: UserProfile = JSON.parse(storedAppProfile);
+          setAppUserProfile(parsedProfile);
         } catch (e) { console.error("Failed to parse app profile", e); }
       }
     }
@@ -119,11 +120,13 @@ export default function HomePage() {
         
         if (!selectedConversationId && combined.length > 0) {
           // Default to the first non-global chat if available, else global
-          const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID);
-          setSelectedConversationId(firstUserChat?.id || combined[0]?.id || null);
+          const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID && !c.isSelfChat);
+          const selfChat = combined.find(c => c.isSelfChat);
+          setSelectedConversationId(selfChat?.id || firstUserChat?.id || combined[0]?.id || null);
         } else if (selectedConversationId && !combined.find(c => c.id === selectedConversationId)) {
-          const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID);
-          setSelectedConversationId(firstUserChat?.id || combined[0]?.id || null);
+          const firstUserChat = combined.find(c => c.id !== SHARED_CONVERSATION_ID && !c.isSelfChat);
+           const selfChat = combined.find(c => c.isSelfChat);
+          setSelectedConversationId(selfChat?.id || firstUserChat?.id || combined[0]?.id || null);
         }
         return combined;
       });
@@ -138,13 +141,16 @@ export default function HomePage() {
     const selfChatDocRef = doc(db, "conversations", selfChatId);
     getDoc(selfChatDocRef).then(docSnap => {
       if (!docSnap.exists()) {
+        const selfUserDisplayName = appUserProfile?.displayName || user.fullName || user.username || "You";
+        const selfUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
         const selfParticipantDetails: ParticipantDetails = {
-            displayName: appUserProfile?.displayName || user.fullName || user.username || "You",
-            avatarUrl: appUserProfile?.photoURL || user.imageUrl || undefined
+            displayName: selfUserDisplayName,
+            avatarUrl: selfUserAvatarUrl || undefined
         };
         const newSelfChatData = {
-          name: "You",
-          avatarUrl: selfParticipantDetails.avatarUrl || `https://placehold.co/100x100.png?text=U`,
+          name: "You", // This name is mostly for Firestore viewing, sidebar will override
+          avatarUrl: selfUserAvatarUrl || `https://placehold.co/100x100.png?text=U`,
+          dataAiHint: "self note user",
           lastMessage: "Notes to self...",
           timestamp: serverTimestamp(),
           isGroup: false,
@@ -154,6 +160,19 @@ export default function HomePage() {
           participantDetails: { [clerkUserId]: selfParticipantDetails },
         };
         setDoc(selfChatDocRef, newSelfChatData).catch(err => console.error("Error creating self chat:", err));
+      } else {
+        // If self-chat exists, check if participantDetails need update (e.g. new photoURL from appUserProfile)
+        const existingData = docSnap.data();
+        const selfUserDisplayName = appUserProfile?.displayName || user.fullName || user.username || "You";
+        const selfUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
+        if (existingData.participantDetails?.[clerkUserId]?.displayName !== selfUserDisplayName ||
+            existingData.participantDetails?.[clerkUserId]?.avatarUrl !== (selfUserAvatarUrl || undefined) ||
+            existingData.avatarUrl !== (selfUserAvatarUrl || `https://placehold.co/100x100.png?text=U`)) {
+             updateDoc(selfChatDocRef, {
+                participantDetails: { [clerkUserId]: { displayName: selfUserDisplayName, avatarUrl: selfUserAvatarUrl || undefined } },
+                avatarUrl: selfUserAvatarUrl || `https://placehold.co/100x100.png?text=U`
+             }).catch(err => console.error("Error updating self chat details:", err));
+        }
       }
     });
 
@@ -251,10 +270,11 @@ export default function HomePage() {
         return;
     }
 
+    const currentAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "User";
+    const currentUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl || undefined; // Prioritize appUserProfile.photoURL
+
     // Handle global chat messages client-side for now
     if (conversationId === SHARED_CONVERSATION_ID) {
-        const currentAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "User";
-        const currentUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
         const newMessage: Message = {
             id: uuidv4(),
             text: text,
@@ -314,9 +334,6 @@ export default function HomePage() {
     const messagesRef = collection(db, "conversations", conversationId, "messages");
     const conversationRef = doc(db, "conversations", conversationId);
     
-    const currentAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "User";
-    const currentUserAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
-
     const messageData: Partial<Message> & { timestamp: any } = {
         sender: 'user',
         type,
@@ -446,8 +463,9 @@ export default function HomePage() {
     const newConversationId = uuidv4();
     const newConversationRef = doc(db, "conversations", newConversationId);
     
-    const currentAppUser = appUserProfile || { displayName: user.fullName || user.username || "User", photoURL: user.imageUrl };
-    const creatorDetails: ParticipantDetails = { displayName: currentAppUser.displayName, avatarUrl: currentAppUser.photoURL };
+    const currentAppUserDisplay = appUserProfile?.displayName || user.fullName || user.username || "User";
+    const currentAppUserAvatar = appUserProfile?.photoURL || user.imageUrl;
+    const creatorDetails: ParticipantDetails = { displayName: currentAppUserDisplay, avatarUrl: currentAppUserAvatar };
 
     const newConversationData = {
       id: newConversationId,
@@ -459,7 +477,7 @@ export default function HomePage() {
       isGroup: true, 
       isSelfChat: false,
       createdBy: clerkUserId,
-      createdByName: currentAppUser.displayName,
+      createdByName: currentAppUserDisplay,
       members: [clerkUserId], // Creator is the first member
       participantDetails: { [clerkUserId]: creatorDetails },
     };
@@ -494,11 +512,12 @@ export default function HomePage() {
             toast({ title: "Chat Opened", description: `Opened existing chat with ${targetUser.username || targetUser.primaryEmailAddress}.`});
         } else {
             // Create new 1-on-1 chat
-            const currentUserAppProfile = appUserProfile || { displayName: user.fullName || user.username || "Current User", photoURL: user.imageUrl };
+            const currentUserAppDisplayName = appUserProfile?.displayName || user.fullName || user.username || "Current User";
+            const currentUserAppAvatarUrl = appUserProfile?.photoURL || user.imageUrl;
             
             const currentUserDetails: ParticipantDetails = {
-                displayName: currentUserAppProfile.displayName,
-                avatarUrl: currentUserAppProfile.photoURL || undefined,
+                displayName: currentUserAppDisplayName,
+                avatarUrl: currentUserAppAvatarUrl || undefined,
             };
             const targetUserDetails: ParticipantDetails = {
                 displayName: targetUser.username || targetUser.primaryEmailAddress || "User",
@@ -508,7 +527,8 @@ export default function HomePage() {
             const newChatData = {
                 id: chatID,
                 name: `Chat with ${targetUserDetails.displayName}`, // Store a descriptive name
-                avatarUrl: targetUserDetails.avatarUrl || `https://placehold.co/100x100.png?text=${targetUserDetails.displayName[0]}`, // Other user's avatar
+                avatarUrl: targetUserDetails.avatarUrl || `https://placehold.co/100x100.png?text=${targetUserDetails.displayName?.[0]?.toUpperCase() || 'U'}`, // Other user's avatar
+                dataAiHint: "person direct",
                 lastMessage: "Chat started.",
                 timestamp: serverTimestamp(),
                 isGroup: false,
@@ -554,6 +574,7 @@ export default function HomePage() {
           onCreateConversation={handleCreateNewGroupConversation} // For creating new group chats
           currentUserId={clerkUserId}
           onOpenAddFriendDialog={() => setIsAddFriendDialogOpen(true)}
+          appUserProfile={appUserProfile} // Pass appUserProfile for sidebar display
         />
       </div>
       <div className="flex-1 h-full">
@@ -577,6 +598,7 @@ export default function HomePage() {
               onSelectConversationForSheet={handleSelectConversation}
               onCreateConversationForSheet={handleCreateNewGroupConversation}
               onOpenAddFriendDialogForSheet={() => setIsAddFriendDialogOpen(true)}
+              appUserProfileForSheet={appUserProfile} // Pass for mobile sidebar via ChatArea->ChatHeader
             />
           </TabsContent>
           <TabsContent value="ideas" className="flex-1 overflow-y-auto p-4">

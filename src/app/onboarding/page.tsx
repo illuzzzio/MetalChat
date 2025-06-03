@@ -19,7 +19,7 @@ const LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY_PREFIX = "metalChatOnboardingComplet
 export default function OnboardingPage() {
   const [displayName, setDisplayName] = useState('');
   const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null); // Can be data URI or Clerk URL
   const router = useRouter();
   const { toast } = useToast();
   const { user, isSignedIn, isLoaded } = useUser();
@@ -42,7 +42,7 @@ export default function OnboardingPage() {
     // Pre-fill with Clerk data if available
     if (user) {
       setDisplayName(user.fullName || user.username || '');
-      setPhotoPreview(user.imageUrl || null);
+      setPhotoPreview(user.imageUrl || null); // Initialize with Clerk image
     }
   }, [router, user, isSignedIn, isLoaded]);
 
@@ -65,7 +65,8 @@ export default function OnboardingPage() {
     const profile: UserProfile = {
       clerkUserId: user.id,
       displayName: displayName.trim(),
-      photoURL: photoPreview || undefined, // Save data URI if exists from local selection
+      // photoPreview will be data URI if a new image was selected, or Clerk's URL if not.
+      photoURL: photoPreview || undefined, 
     };
 
     // Store app-specific profile details with Clerk user ID suffix
@@ -86,13 +87,13 @@ export default function OnboardingPage() {
         toast({ title: "Image Too Large", description: "Please select an image smaller than 2MB for preview.", variant: "destructive"});
         return;
       }
-      setProfilePhoto(file);
+      setProfilePhoto(file); // Store File object if needed for direct upload later
       const reader = new FileReader();
       reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
+        setPhotoPreview(reader.result as string); // Set preview to new data URI
       };
       reader.readAsDataURL(file);
-      toast({ title: "Image Selected (Preview)", description: "Profile photo is currently a local preview. Actual upload is not implemented yet."});
+      toast({ title: "Image Selected (Preview)", description: "Profile photo is currently a local preview. Actual upload to Clerk not implemented in this step."});
     }
   };
 
@@ -152,7 +153,7 @@ export default function OnboardingPage() {
                 Choose Image
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Clerk profile image is used by default. This provides a local override preview. Full image upload feature coming soon.</p>
+            <p className="text-xs text-muted-foreground">Clerk profile image is used by default if no image chosen here. This provides a local override preview. Full image upload feature coming soon.</p>
           </div>
         </CardContent>
         <CardFooter>

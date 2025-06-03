@@ -35,7 +35,7 @@ export default function SettingsPage() {
       try {
         const profile: UserProfile = JSON.parse(storedProfile);
         setDisplayName(profile.displayName);
-        // Use stored preview if it exists, otherwise Clerk's image
+        // Use stored photoURL (which could be data URI or Clerk URL) if it exists, otherwise Clerk's image
         setPhotoPreview(profile.photoURL || user.imageUrl || null);
       } catch (e) {
         console.error("Failed to parse profile from localStorage", e);
@@ -63,11 +63,11 @@ export default function SettingsPage() {
       return;
     }
 
+    // photoPreview will contain the data URI of a newly selected local file,
+    // or the existing photoURL (from Clerk or previous data URI).
     const updatedProfile: UserProfile = {
       clerkUserId: user.id,
       displayName: displayName.trim(),
-      // photoPreview will contain the data URI of a newly selected local file,
-      // or the existing Clerk imageUrl if no new file was chosen.
       photoURL: photoPreview || undefined, 
     };
 

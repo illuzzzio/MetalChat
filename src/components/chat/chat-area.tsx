@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Conversation, Message, Idea } from "@/types/chat";
+import type { Conversation, Message, Idea, UserProfile } from "@/types/chat";
 import ChatHeader from "./chat-header";
 import ChatMessages from "./chat-messages";
 import ChatInput from "./chat-input";
@@ -32,6 +32,7 @@ interface ChatAreaProps {
   onSelectConversationForSheet?: (id: string) => void;
   onCreateConversationForSheet?: (name: string) => void;
   onOpenAddFriendDialogForSheet?: () => void;
+  appUserProfileForSheet?: UserProfile | null; // For mobile sidebar
 }
 
 export default function ChatArea({ 
@@ -44,7 +45,8 @@ export default function ChatArea({
     allConversationsForSheet,
     onSelectConversationForSheet,
     onCreateConversationForSheet,
-    onOpenAddFriendDialogForSheet
+    onOpenAddFriendDialogForSheet,
+    appUserProfileForSheet
 }: ChatAreaProps) {
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -173,6 +175,7 @@ export default function ChatArea({
         onCreateConversation={onCreateConversationForSheet}
         currentUserId={currentUserId}
         onOpenAddFriendDialog={onOpenAddFriendDialogForSheet}
+        appUserProfile={appUserProfileForSheet} // Pass appUserProfile for mobile sidebar
       />
       
       {conversation ? (
