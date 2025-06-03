@@ -39,7 +39,7 @@ const ClientFormattedTime = ({ timestamp }: { timestamp: string }) => {
     if (timestamp) {
       setFormattedTime(new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     } else {
-      setFormattedTime(null); // Handle case where timestamp might be undefined initially
+      setFormattedTime(null); 
     }
   }, [timestamp]);
 
@@ -99,7 +99,7 @@ export default function ChatSidebar({
                   "flex items-center w-full p-3 rounded-md text-left transition-colors duration-150 ease-in-out",
                   selectedConversationId === convo.id
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "hover:bg-sidebar-accent/20 hover:text-sidebar-primary" // Adjusted hover for better theme harmony
+                    : "hover:bg-sidebar-accent/20 hover:text-sidebar-primary" 
                 )}
               >
                 <Avatar className="h-10 w-10 mr-3">
@@ -146,6 +146,12 @@ export default function ChatSidebar({
                     onChange={(e) => setNewConversationName(e.target.value)}
                     className="col-span-3"
                     placeholder="e.g., Project Alpha Team"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newConversationName.trim()) {
+                        e.preventDefault();
+                        handleCreateNewConversation();
+                      }
+                    }}
                   />
                 </div>
               </div>

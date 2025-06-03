@@ -41,17 +41,24 @@ const exampleConversations: Conversation[] = [
     dataAiHint: "development team",
     lastMessage: "Let's discuss the new feature.",
     timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 mins ago
-    messages: [],
+    messages: [
+        { id: 'dev-msg-1', text: "Hey team, how's the new UI coming along?", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 7).toISOString(), type: 'text', userId: 'user-dev-1' },
+        { id: 'dev-msg-2', text: "Making good progress! Should have a preview by EOD.", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 6).toISOString(), type: 'text', userId: 'user-dev-2' },
+    ],
     isGroup: true,
   },
   {
-    id: "random- banter",
+    id: "random-banter",
     name: "Random Banter",
     avatarUrl: "https://placehold.co/100x100.png?text=RB",
     dataAiHint: "casual chat",
     lastMessage: "Anyone seen that new movie?",
     timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 mins ago
-    messages: [],
+    messages: [
+        { id: 'random-msg-1', text: "Weekend plans, anyone?", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 32).toISOString(), type: 'text', userId: 'user-random-1'},
+        { id: 'random-msg-2', text: "Thinking of hitting the beach if the weather holds up!", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 31).toISOString(), type: 'text', userId: 'user-random-2' },
+        { id: 'random-msg-3', text: "Anyone seen that new movie?", sender: 'other', timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), type: 'text', userId: 'user-random-1'},
+    ],
     isGroup: true,
   },
 ];
@@ -80,7 +87,9 @@ export default function HomePage() {
   // Onboarding and Profile loading
  useEffect(() => {
     const onboardingComplete = localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY);
-    if (onboardingComplete !== 'true') {
+    const storedUserId = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
+
+    if (onboardingComplete !== 'true' || !storedUserId) {
       router.push('/onboarding');
     } else {
       const storedProfile = localStorage.getItem(LOCAL_STORAGE_PROFILE_KEY);
@@ -108,10 +117,10 @@ export default function HomePage() {
 
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
       const fetchedConversations: Conversation[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
         fetchedConversations.push({
-          id: doc.id,
+          id: docSnap.id,
           name: data.name || "Unnamed Chat",
           avatarUrl: data.avatarUrl || `https://placehold.co/100x100.png?text=${data.name?.[0]?.toUpperCase() || 'C'}`,
           dataAiHint: data.dataAiHint || "chat group",
@@ -122,7 +131,7 @@ export default function HomePage() {
           createdBy: data.createdBy,
         });
       });
-      // Merge with any example/default conversations if they aren't already fetched
+      
       const allConvoIds = new Set(fetchedConversations.map(c => c.id));
       const combinedConversations = [
         ...fetchedConversations,
@@ -134,7 +143,6 @@ export default function HomePage() {
       if (!selectedConversationId && combinedConversations.length > 0) {
         setSelectedConversationId(combinedConversations[0].id);
       } else if (selectedConversationId && !combinedConversations.find(c => c.id === selectedConversationId)) {
-        // If selected convo was deleted or disappeared, select the first one
         setSelectedConversationId(combinedConversations[0]?.id || null);
       }
 
@@ -143,12 +151,12 @@ export default function HomePage() {
       toast({ title: "Error", description: "Could not fetch conversations.", variant: "destructive" });
     });
     return () => unsubscribe();
-  }, [toast]); // Removed selectedConversationId from deps as it might cause re-fetch loops
+  }, [toast]); 
 
   // Fetch messages for the selected conversation
   useEffect(() => {
     if (!selectedConversationId) {
-        setConversations(prevConvos => prevConvos.map(c => ({ ...c, messages: [] }))); // Clear messages for all convos
+        setConversations(prevConvos => prevConvos.map(c => ({ ...c, messages: [] })));
         return;
     }
 
@@ -157,10 +165,10 @@ export default function HomePage() {
 
     const unsubscribeMessages = onSnapshot(qMessages, (querySnapshot) => {
       const fetchedMessages: Message[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
+      querySnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
         fetchedMessages.push({
-          id: doc.id,
+          id: docSnap.id,
           text: data.text,
           sender: data.sender,
           timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
@@ -169,7 +177,7 @@ export default function HomePage() {
           fileName: data.fileName,
           duration: data.duration,
           isDeleted: data.isDeleted || false,
-          userId: data.userId, // Store the sender's user ID
+          userId: data.userId,
         });
       });
 
@@ -206,7 +214,7 @@ export default function HomePage() {
     text: string, 
     type: Message['type'] = 'text', 
     file?: File, 
-    imageDataUri?: string, // For AI generated image (not directly sent now) or pasted image
+    imageDataUri?: string,
     duration?: number
   ) => {
     if (!conversationId || !currentUserId) return;
@@ -214,44 +222,55 @@ export default function HomePage() {
     const messagesRef = collection(db, "conversations", conversationId, "messages");
     const conversationRef = doc(db, "conversations", conversationId);
 
-    const messageDataToStore: Omit<Message, 'id' | 'timestamp' | 'deletedForMe'> & { timestamp: any } = { // Firestore will generate ID
+    const messageDataToStore: Omit<Message, 'id' | 'timestamp' | 'deletedForMe'> & { timestamp: any } = {
       sender: 'user',
       type,
       timestamp: serverTimestamp(),
       text: '', 
       userId: currentUserId,
     };
+    
+    let displayLastMessage = text;
 
     if (type === 'text') {
       messageDataToStore.text = text;
-    } else if (imageDataUri && type === 'image') { // Pasted image or future AI direct send
-        messageDataToStore.fileUrl = imageDataUri; // This is a data URI
+    } else if (imageDataUri && type === 'image') {
+        messageDataToStore.fileUrl = imageDataUri; 
         messageDataToStore.fileName = `Pasted Image ${new Date().toISOString()}.png`;
-        messageDataToStore.text = messageDataToStore.fileName;
-    } else if (file) { // User uploaded file (image, audio, video)
-      // For now, use local URL for preview. Real upload to Firebase Storage needed for sharing.
+        messageDataToStore.text = messageDataToStore.fileName; // Or keep empty if just image
+        displayLastMessage = "Image shared";
+    } else if (file) {
+      // For true sharing, upload to Firebase Storage and use the URL.
+      // For now, use a local preview URL and toast a message.
       const localUrl = URL.createObjectURL(file);
       messageDataToStore.fileUrl = localUrl; 
       messageDataToStore.fileName = file.name;
-      messageDataToStore.text = file.name;
-      if (type === 'audio' && duration) {
-          messageDataToStore.duration = duration;
+      messageDataToStore.text = file.name; // Or an empty string, or specific text
+      
+      if (type === 'audio') {
+        displayLastMessage = "Audio message";
+        if (duration) messageDataToStore.duration = duration;
+      } else if (type === 'video') {
+        displayLastMessage = "Video shared";
+      } else if (type === 'image') {
+        displayLastMessage = "Image shared";
       }
-    } else {
-      // Should not happen if logic is correct
+    } else if (type !== 'text') {
       console.error("Attempted to send media message without file or imageDataUri");
       toast({ title: "Send Error", description: "Cannot send empty media message.", variant: "destructive"});
       return;
     }
     
-    if (!messageDataToStore.text && type !== 'image') { // Images can have empty text if it's just the image
+    if (!messageDataToStore.text && !messageDataToStore.fileUrl) { // Ensure there's some content
       messageDataToStore.text = 'Media Content';
+      displayLastMessage = 'Media Content';
     }
 
+
     try {
-      const addedDocRef = await addDoc(messagesRef, messageDataToStore);
+      await addDoc(messagesRef, messageDataToStore);
       await updateDoc(conversationRef, {
-        lastMessage: type === 'text' ? text : (messageDataToStore.fileName || "Media shared"),
+        lastMessage: displayLastMessage,
         timestamp: serverTimestamp(),
       });
       
@@ -280,7 +299,7 @@ export default function HomePage() {
         try {
           const currentConvo = conversations.find(c => c.id === conversationId);
           const chatHistoryForAI = currentConvo?.messages
-            .filter(msg => !msg.isLoading && (msg.sender === 'user' || msg.sender === 'metalAI') && msg.type === 'text' && !msg.isDeleted)
+            .filter(msg => !msg.isLoading && (msg.sender === 'user' || msg.sender === 'metalAI') && msg.type === 'text' && !msg.isDeleted && !msg.deletedForMe)
             .slice(-10) 
             .map(msg => ({
               role: msg.sender === 'user' ? 'user' : 'model' as 'user' | 'model',
@@ -301,7 +320,7 @@ export default function HomePage() {
             })
           );
           
-          const aiMessageRef = await addDoc(messagesRef, {
+          await addDoc(messagesRef, {
             text: aiResponse.aiResponse,
             sender: 'metalAI',
             type: 'text',
@@ -327,7 +346,7 @@ export default function HomePage() {
               return convo;
             })
           );
-          const errorMsgRef = await addDoc(messagesRef, {
+          await addDoc(messagesRef, {
             text: "Sorry, I encountered an error and could not respond.",
             sender: 'metalAI',
             type: 'text',
@@ -339,10 +358,10 @@ export default function HomePage() {
             timestamp: serverTimestamp(),
           });
         }
-      } else if ((type === 'image' || type === 'video' || type === 'audio') && file) {
+      } else if ((type === 'image' || type === 'video' || type === 'audio') && (file || imageDataUri)) {
          toast({
             title: `${type.charAt(0).toUpperCase() + type.slice(1)} Sent (Local Preview)`,
-            description: `"${file.name}" is shown locally. For others to see/hear it, backend file upload (not yet implemented) is required.`,
+            description: `"${messageDataToStore.fileName || 'Pasted content'}" is shown locally. For others to see/hear it, backend file upload (not yet implemented) is required.`,
             duration: 7000,
          });
       }
@@ -375,26 +394,40 @@ export default function HomePage() {
     try {
       await updateDoc(messageRef, {
         text: "This message was deleted.",
-        type: "text", // Change type to text to prevent rendering issues with media
+        type: "text", 
         fileUrl: null,
         fileName: null,
         duration: null,
         isDeleted: true,
       });
       toast({ title: "Message Deleted", description: "The message has been deleted for everyone."});
-      // Update last message if this was the last one
+      
+      // Update last message if this was the last one visible one
       const convoRef = doc(db, "conversations", conversationId);
-      const convoSnap = await getDoc(convoRef);
-      if (convoSnap.exists()) {
-        const currentConvo = conversations.find(c => c.id === conversationId);
-        if (currentConvo && currentConvo.messages[currentConvo.messages.length -1]?.id === messageId) {
-            const newLastMessage = currentConvo.messages.filter(m => m.id !== messageId && !m.isDeleted).pop()?.text || "This message was deleted.";
-             await updateDoc(convoRef, {
-                lastMessage: newLastMessage,
-                timestamp: serverTimestamp() 
-            });
-        }
+      const currentConvo = conversations.find(c => c.id === conversationId);
+      
+      if (currentConvo) {
+          const visibleMessages = currentConvo.messages.filter(m => !m.isDeleted && !m.deletedForMe);
+          const latestVisibleMessageAfterDelete = visibleMessages.filter(m=> m.id !== messageId).pop();
+          
+          let newLastMessageText = "This message was deleted.";
+          if(latestVisibleMessageAfterDelete){
+            newLastMessageText = latestVisibleMessageAfterDelete.text;
+            if(latestVisibleMessageAfterDelete.type !== 'text' && latestVisibleMessageAfterDelete.fileName){
+                 newLastMessageText = latestVisibleMessageAfterDelete.fileName;
+            }
+          } else if (visibleMessages.length === 1 && visibleMessages[0].id === messageId) {
+             // This was the only visible message
+             newLastMessageText = "This message was deleted.";
+          }
+
+
+         await updateDoc(convoRef, {
+            lastMessage: newLastMessageText,
+            timestamp: serverTimestamp() 
+        });
       }
+
     } catch (error) {
       console.error("Error deleting message for everyone:", error);
       toast({ title: "Deletion Error", description: "Could not delete the message for everyone.", variant: "destructive" });
@@ -408,30 +441,26 @@ export default function HomePage() {
     }
     const newConversationId = uuidv4();
     const newConversationRef = doc(db, "conversations", newConversationId);
-    const conversationData: Conversation = {
+    const newConversationData: Omit<Conversation, 'messages' | 'timestamp'> & {timestamp: any, createdBy: string} = {
       id: newConversationId,
       name,
       avatarUrl: `https://placehold.co/100x100.png?text=${name.substring(0,1).toUpperCase()}`,
       dataAiHint: "group chat",
       lastMessage: "Conversation created.",
-      timestamp: new Date().toISOString(),
-      messages: [],
+      timestamp: serverTimestamp(),
       isGroup: true,
       createdBy: currentUserId,
     };
 
     try {
-      await setDoc(newConversationRef, {
-        name: conversationData.name,
-        avatarUrl: conversationData.avatarUrl,
-        dataAiHint: conversationData.dataAiHint,
-        lastMessage: conversationData.lastMessage,
-        timestamp: serverTimestamp(),
-        isGroup: conversationData.isGroup,
-        createdBy: conversationData.createdBy,
-      });
-      // Add to local state, Firestore listener will eventually pick it up but this is faster for UI
-      setConversations(prev => [conversationData, ...prev].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+      await setDoc(newConversationRef, newConversationData);
+      // Add to local state for immediate UI update
+      const localNewConvo: Conversation = {
+          ...newConversationData,
+          messages: [],
+          timestamp: new Date().toISOString(), 
+      }
+      setConversations(prev => [localNewConvo, ...prev].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
       setSelectedConversationId(newConversationId);
       toast({ title: "Conversation Created", description: `"${name}" is ready.` });
     } catch (error) {
@@ -441,11 +470,12 @@ export default function HomePage() {
   };
 
   const selectedConversation = conversations.find(c => c.id === selectedConversationId) || null;
-  const displayName = userProfile?.displayName || "User";
+  const displayName = userProfile?.displayName || currentUserId || "User";
 
-  if (!localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY)) {
-    // router.push will be handled by useEffect, show loading or minimal UI
-    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Loading MetalChat...</p></div>;
+  if (!userProfile && localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY) === 'true') {
+    // This means onboarding was complete, but profile somehow not loaded, or user ID not set yet.
+    // Let useEffect for onboarding handle redirection if needed.
+    return <div className="flex h-screen w-screen items-center justify-center bg-background"><p>Loading MetalChat profile...</p></div>;
   }
 
 

@@ -34,6 +34,10 @@ export default function IdeaList({ ideas, onDeleteIdea }: IdeaListProps) {
   };
 
   const handleDownloadImage = (imageDataUri: string, prompt: string) => {
+    if (!imageDataUri) {
+        toast({title: "Download Error", description: "Image data is not available.", variant: "destructive"});
+        return;
+    }
     const link = document.createElement('a');
     link.href = imageDataUri;
     // Sanitize prompt for filename
@@ -47,25 +51,25 @@ export default function IdeaList({ ideas, onDeleteIdea }: IdeaListProps) {
 
   return (
     <ScrollArea className="h-full">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-1">
+      <div className="p-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {ideas.map((idea) => (
           <Card key={idea.id} className="flex flex-col overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-200 bg-card">
-            <CardHeader>
-              <CardTitle className="text-lg font-headline truncate" title={idea.prompt}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-md font-headline truncate" title={idea.prompt}>
                 Prompt:
               </CardTitle>
-              <CardDescription className="text-sm h-12 overflow-hidden text-ellipsis leading-tight line-clamp-2">
+              <CardDescription className="text-xs h-10 overflow-hidden text-ellipsis leading-tight line-clamp-2">
                 {idea.prompt}
               </CardDescription>
             </CardHeader>
-            <CardContent className="flex-grow flex items-center justify-center p-0 aspect-square bg-muted/30">
+            <CardContent className="flex-grow flex items-center justify-center p-0 aspect-[4/3] bg-muted/30">
               {idea.imageDataUri ? (
                 <Image
                   src={idea.imageDataUri}
                   alt={`Generated image for prompt: ${idea.prompt.substring(0, 50)}...`}
-                  width={300}
-                  height={300}
-                  className="object-contain w-full h-auto max-h-full"
+                  width={400} 
+                  height={300} 
+                  className="object-contain w-full h-full"
                   unoptimized // Important for data URIs
                   data-ai-hint="ai generated idea"
                 />
@@ -76,19 +80,21 @@ export default function IdeaList({ ideas, onDeleteIdea }: IdeaListProps) {
               )}
             </CardContent>
             <CardFooter className="text-xs text-muted-foreground p-2 border-t flex flex-col items-start gap-2">
-                <div className="flex items-center text-xs">
+                <div className="flex items-center text-xs w-full">
                     <CalendarDays className="w-3.5 h-3.5 mr-1.5 flex-shrink-0" />
-                    {new Date(idea.timestamp).toLocaleDateString()} - {new Date(idea.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <span className="truncate">
+                        {new Date(idea.timestamp).toLocaleDateString()} - {new Date(idea.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                 </div>
                 <div className="flex w-full gap-1">
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleCopyPrompt(idea.prompt)}>
-                        <Copy className="w-3.5 h-3.5 mr-1.5"/> Copy
+                    <Button variant="outline" size="sm" className="flex-1 min-w-0" onClick={() => handleCopyPrompt(idea.prompt)}>
+                        <Copy className="w-3.5 h-3.5 mr-1 sm:mr-1.5"/> <span className="truncate">Copy</span>
                     </Button>
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleDownloadImage(idea.imageDataUri, idea.prompt)}>
-                        <Download className="w-3.5 h-3.5 mr-1.5"/> DL
+                    <Button variant="outline" size="sm" className="flex-1 min-w-0" onClick={() => handleDownloadImage(idea.imageDataUri, idea.prompt)} disabled={!idea.imageDataUri}>
+                        <Download className="w-3.5 h-3.5 mr-1 sm:mr-1.5"/> <span className="truncate">DL</span>
                     </Button>
-                    <Button variant="destructive" size="sm" className="flex-1" onClick={() => onDeleteIdea(idea.id)}>
-                        <Trash2 className="w-3.5 h-3.5 mr-1.5"/> Del
+                    <Button variant="destructive" size="sm" className="flex-1 min-w-0" onClick={() => onDeleteIdea(idea.id)}>
+                        <Trash2 className="w-3.5 h-3.5 mr-1 sm:mr-1.5"/> <span className="truncate">Del</span>
                     </Button>
                 </div>
             </CardFooter>

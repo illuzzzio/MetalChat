@@ -16,16 +16,26 @@ const LOCAL_STORAGE_PROFILE_KEY = "metalChatUserProfile";
 
 export default function SettingsPage() {
   const [displayName, setDisplayName] = useState('');
-  const [profilePhoto, setProfilePhoto] = useState<File | null>(null); // For future use
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null); // For future use
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null); 
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null); 
   const { toast } = useToast();
 
   useEffect(() => {
     const storedProfile = localStorage.getItem(LOCAL_STORAGE_PROFILE_KEY);
     if (storedProfile) {
-      const profile: UserProfile = JSON.parse(storedProfile);
-      setDisplayName(profile.displayName);
-      // Set photoPreview if profile.photoURL exists and is implemented
+      try {
+        const profile: UserProfile = JSON.parse(storedProfile);
+        setDisplayName(profile.displayName);
+        if (profile.photoURL) {
+             // In a real app, this might be a URL to an uploaded image.
+             // For now, if it's a data URI from local selection, it could be set.
+            setPhotoPreview(profile.photoURL);
+        }
+      } catch (e) {
+        console.error("Failed to parse profile from localStorage", e);
+        // Handle error or clear corrupted data
+        localStorage.removeItem(LOCAL_STORAGE_PROFILE_KEY);
+      }
     }
   }, []);
 
@@ -41,7 +51,10 @@ export default function SettingsPage() {
 
     const updatedProfile: UserProfile = {
       displayName: displayName.trim(),
-      // photoURL: photoPreview || undefined, // When image upload is implemented
+      // If photoPreview is a data URI from a new selection, save it.
+      // If it's an existing URL, it's already set.
+      // Actual image upload to a server and getting a URL is needed for persistence across devices.
+      photoURL: photoPreview || undefined, 
     };
 
     localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(updatedProfile));
@@ -49,20 +62,23 @@ export default function SettingsPage() {
       title: 'Profile Updated',
       description: 'Your display name has been saved.',
     });
-    // Potentially trigger a global state update or event if other components need to react immediately
+    // Consider window.dispatchEvent(new Event('profileUpdated')) if other components need immediate refresh.
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Placeholder for actual photo upload logic
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setProfilePhoto(file);
+      if (file.size > 2 * 1024 * 1024) { // Max 2MB for preview
+        toast({ title: "Image Too Large", description: "Please select an image smaller than 2MB for preview.", variant: "destructive"});
+        return;
+      }
+      setProfilePhoto(file); // Store the file object if you plan to upload it
       const reader = new FileReader();
       reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
+        setPhotoPreview(reader.result as string); // This will be a data URI
       };
       reader.readAsDataURL(file);
-      toast({ title: "Image Selected (Preview)", description: "Image upload not fully implemented yet."});
+      toast({ title: "Image Selected (Preview)", description: "Image upload and saving across sessions is not fully implemented yet."});
     }
   };
 
@@ -77,9 +93,9 @@ export default function SettingsPage() {
               </Button>
             </Link>
             <CardTitle className="text-2xl font-headline text-center flex-grow">Profile Settings</CardTitle>
-            <div className="w-8"></div> {/* Spacer */}
+            <div className="w-8"></div> {/* Spacer to balance the back button */}
           </div>
-          <CardDescription className="text-center">
+          <CardDescription className="text-center pt-2">
             Manage your display name and profile picture.
           </CardDescription>
         </CardHeader>
@@ -96,11 +112,11 @@ export default function SettingsPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="profilePhoto" className="font-semibold">Profile Photo (Coming Soon)</Label>
+            <Label htmlFor="profilePhoto" className="font-semibold">Profile Photo (Local Preview)</Label>
             <div className="flex items-center gap-4">
               <div className="relative h-24 w-24 rounded-full bg-muted flex items-center justify-center overflow-hidden border-2 border-dashed border-border">
                 {photoPreview ? (
-                  <Image src={photoPreview} alt="Profile Preview" layout="fill" objectFit="cover" />
+                  <Image src={photoPreview} alt="Profile Preview" layout="fill" objectFit="cover" unoptimized={photoPreview.startsWith('data:')}/>
                 ) : (
                   <UserCircle className="h-12 w-12 text-muted-foreground" />
                 )}
@@ -109,8 +125,7 @@ export default function SettingsPage() {
                     size="icon" 
                     className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity rounded-full"
                     onClick={() => document.getElementById('profilePhotoInput')?.click()}
-                    title="Change photo (coming soon)"
-                    disabled // Disabled for now
+                    title="Change photo"
                     >
                     <Camera className="h-6 w-6 text-white"/>
                 </Button>
@@ -118,16 +133,15 @@ export default function SettingsPage() {
                <Input 
                 id="profilePhotoInput" 
                 type="file" 
-                accept="image/*" 
+                accept="image/png, image/jpeg, image/webp, image/gif" 
                 className="hidden" 
                 onChange={handlePhotoChange} 
-                disabled // Disabled for now
                 />
-              <Button variant="outline" onClick={() => document.getElementById('profilePhotoInput')?.click()} disabled>
-                Upload Image
+              <Button variant="outline" onClick={() => document.getElementById('profilePhotoInput')?.click()}>
+                Choose Image
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Feature to upload and save profile photos is coming soon.</p>
+            <p className="text-xs text-muted-foreground">Profile photo is stored locally for preview. Full upload feature coming soon.</p>
           </div>
         </CardContent>
         <CardFooter>

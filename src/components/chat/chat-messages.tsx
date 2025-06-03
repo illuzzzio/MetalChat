@@ -21,16 +21,26 @@ export default function ChatMessages({
     onDeleteMessageForEveryone,
     conversationId 
 }: ChatMessagesProps) {
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (viewportRef.current) {
-      viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+      // Delay scroll to allow images/media to potentially load and affect scrollHeight
+      setTimeout(() => {
+        if (viewportRef.current) {
+            viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
+        }
+      }, 100);
     }
   }, [messages]);
 
-  const visibleMessages = messages.filter(msg => !msg.deletedForMe);
+  // Filter out messages marked as deleted for the current user, unless they are also marked isDeleted (for everyone)
+  const visibleMessages = messages.filter(msg => {
+    if (msg.isDeleted) return true; // Always show "This message was deleted"
+    if (msg.deletedForMe && msg.userId === currentUserId) return false; // Hide if current user deleted for themselves
+    return true;
+  });
+
 
   if (!visibleMessages || visibleMessages.length === 0) {
     return (
@@ -41,8 +51,8 @@ export default function ChatMessages({
   }
 
   return (
-    <ScrollArea className="flex-1 p-4 md:p-6" ref={scrollAreaRef}>
-      <div ref={viewportRef} className="h-full">
+    <ScrollArea className="flex-1" viewportRef={viewportRef}>
+      <div className="p-4 md:p-6 space-y-1">
         {visibleMessages.map((msg) => (
           <MessageItem 
             key={msg.id} 

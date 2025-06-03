@@ -42,7 +42,7 @@ export default function ChatArea({
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const { toast } = useToast();
   const [isDragging, setIsDragging] = useState(false);
-  const dropZoneRef = useRef<HTMLDivElement>(null);
+  const dropZoneRef = useRef<HTMLDivElement>(null); // Ref for the entire chat area
 
   const handleSummarizeChat = async () => {
     if (!conversation || conversation.messages.filter(m => !m.isDeleted && !m.deletedForMe).length === 0) {
@@ -53,7 +53,15 @@ export default function ChatArea({
     setIsSummaryLoading(true);
     const chatLog = conversation.messages
       .filter(msg => !msg.isLoading && !msg.isDeleted && !msg.deletedForMe) 
-      .map(msg => `${msg.sender === 'user' ? (msg.userId === currentUserId ? currentUserDisplayName || 'You' : 'Other User') : (msg.sender === 'metalAI' ? 'MetalAI' : 'System')}: ${msg.text}${msg.fileName ? ` [File: ${msg.fileName}]` : ''}`)
+      .map(msg => {
+        let senderName = 'System';
+        if (msg.sender === 'user') {
+          senderName = msg.userId === currentUserId ? (currentUserDisplayName || 'You') : 'Other User';
+        } else if (msg.sender === 'metalAI') {
+          senderName = 'MetalAI';
+        }
+        return `${senderName}: ${msg.text}${msg.fileName ? ` [File: ${msg.fileName}]` : ''}`;
+      })
       .join('\n');
     
     try {
@@ -68,26 +76,28 @@ export default function ChatArea({
     }
   };
 
-  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragging(true);
-  };
+    if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
+      setIsDragging(true);
+    }
+  }, []);
 
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    // Use a timeout to prevent flickering when dragging over child elements
+    // Check if the mouse is leaving the drop zone or entering a child element
     if (dropZoneRef.current && !dropZoneRef.current.contains(e.relatedTarget as Node)) {
         setIsDragging(false);
     }
-  };
+  }, []);
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!isDragging) setIsDragging(true); // Ensure it stays true while dragging over
-  };
+    if (!isDragging) setIsDragging(true);
+  }, [isDragging]);
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -96,6 +106,10 @@ export default function ChatArea({
 
     if (!conversation) {
         toast({ title: "Error", description: "No conversation selected.", variant: "destructive" });
+        return;
+    }
+    if (!currentUserId) {
+        toast({ title: "Error", description: "User not identified.", variant: "destructive" });
         return;
     }
 
@@ -107,13 +121,13 @@ export default function ChatArea({
         else if (file.type.startsWith('video/')) fileType = 'video';
         else if (file.type.startsWith('image/')) fileType = 'image';
         else {
-          toast({ title: "Unsupported File", description: `File type for "${file.name}" is not supported.`, variant: "destructive"});
+          toast({ title: "Unsupported File", description: `File type for "${file.name}" is not supported for drag & drop.`, variant: "destructive"});
           continue; 
         }
         onSendMessage(conversation.id, file.name, fileType, file);
       }
     }
-  }, [conversation, onSendMessage, toast]);
+  }, [conversation, onSendMessage, toast, currentUserId]);
 
 
   return (
@@ -121,7 +135,7 @@ export default function ChatArea({
       ref={dropZoneRef}
       className={cn(
         "flex flex-col h-full relative bg-background text-foreground overflow-hidden transition-colors duration-200",
-        isDragging && "bg-accent/10"
+        isDragging && "bg-accent/20 ring-2 ring-accent ring-offset-2 ring-offset-background"
       )}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -134,8 +148,8 @@ export default function ChatArea({
       >
       </div>
        {isDragging && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-          <p className="text-xl font-semibold text-white">Drop files here</p>
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 backdrop-blur-sm pointer-events-none">
+          <p className="text-2xl font-semibold text-white drop-shadow-lg">Drop files to upload</p>
         </div>
       )}
       

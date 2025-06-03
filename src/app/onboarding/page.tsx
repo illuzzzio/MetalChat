@@ -11,20 +11,27 @@ import { useToast } from '@/hooks/use-toast';
 import type { UserProfile } from '@/types/chat';
 import { UserCircle, Camera } from 'lucide-react';
 import Image from 'next/image';
+import { v4 as uuidv4 } from 'uuid';
+
 
 const LOCAL_STORAGE_PROFILE_KEY = "metalChatUserProfile";
 const LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY = "metalChatOnboardingComplete";
+const LOCAL_STORAGE_USER_ID_KEY = "metalChatUserId";
 
 export default function OnboardingPage() {
   const [displayName, setDisplayName] = useState('');
-  const [profilePhoto, setProfilePhoto] = useState<File | null>(null); // For future use
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null); // For future use
+  const [profilePhoto, setProfilePhoto] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const router = useRouter();
   const { toast } = useToast();
 
   useEffect(() => {
     // If already onboarded, redirect to home
-    if (localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY) === 'true') {
+    // Also check if userID exists, as it's part of onboarding now.
+    const onboardingComplete = localStorage.getItem(LOCAL_STORAGE_ONBOARDING_COMPLETE_KEY);
+    const userIdExists = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
+
+    if (onboardingComplete === 'true' && userIdExists) {
       router.push('/');
     }
   }, [router]);
@@ -39,9 +46,15 @@ export default function OnboardingPage() {
       return;
     }
 
+    let userId = localStorage.getItem(LOCAL_STORAGE_USER_ID_KEY);
+    if (!userId) {
+      userId = uuidv4();
+      localStorage.setItem(LOCAL_STORAGE_USER_ID_KEY, userId);
+    }
+
     const profile: UserProfile = {
       displayName: displayName.trim(),
-      // photoURL will be handled later
+      photoURL: photoPreview || undefined, // Save data URI if exists, otherwise undefined
     };
 
     localStorage.setItem(LOCAL_STORAGE_PROFILE_KEY, JSON.stringify(profile));
@@ -55,16 +68,19 @@ export default function OnboardingPage() {
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Placeholder for actual photo upload logic
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+       if (file.size > 2 * 1024 * 1024) { // Max 2MB for preview
+        toast({ title: "Image Too Large", description: "Please select an image smaller than 2MB for preview.", variant: "destructive"});
+        return;
+      }
       setProfilePhoto(file);
       const reader = new FileReader();
       reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
+        setPhotoPreview(reader.result as string); // This is a base64 data URI
       };
       reader.readAsDataURL(file);
-      toast({ title: "Image Selected (Preview)", description: "Image upload not fully implemented yet."});
+      toast({ title: "Image Selected (Preview)", description: "Profile photo is currently a local preview."});
     }
   };
 
@@ -75,7 +91,7 @@ export default function OnboardingPage() {
         <CardHeader>
           <CardTitle className="text-2xl font-headline text-center">Welcome to MetalChat!</CardTitle>
           <CardDescription className="text-center">
-            Let's set up your profile so others can recognize you.
+            Let's set up your profile. This helps others recognize you.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -91,11 +107,11 @@ export default function OnboardingPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="profilePhoto" className="font-semibold">Profile Photo (Optional - Coming Soon)</Label>
+            <Label htmlFor="profilePhoto" className="font-semibold">Profile Photo (Optional - Local Preview)</Label>
             <div className="flex items-center gap-4">
                <div className="relative h-24 w-24 rounded-full bg-muted flex items-center justify-center overflow-hidden border-2 border-dashed border-border">
                 {photoPreview ? (
-                  <Image src={photoPreview} alt="Profile Preview" layout="fill" objectFit="cover" />
+                  <Image src={photoPreview} alt="Profile Preview" layout="fill" objectFit="cover" unoptimized={photoPreview.startsWith('data:')} />
                 ) : (
                   <UserCircle className="h-12 w-12 text-muted-foreground" />
                 )}
@@ -104,8 +120,7 @@ export default function OnboardingPage() {
                     size="icon" 
                     className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 hover:opacity-100 transition-opacity rounded-full"
                     onClick={() => document.getElementById('profilePhotoInput')?.click()}
-                    title="Upload photo (coming soon)"
-                    disabled // Disabled for now
+                    title="Upload photo"
                     >
                     <Camera className="h-6 w-6 text-white"/>
                 </Button>
@@ -113,16 +128,15 @@ export default function OnboardingPage() {
                <Input 
                 id="profilePhotoInput" 
                 type="file" 
-                accept="image/*" 
+                accept="image/png, image/jpeg, image/webp, image/gif"
                 className="hidden" 
                 onChange={handlePhotoChange} 
-                disabled // Disabled for now
                 />
-              <Button variant="outline" onClick={() => document.getElementById('profilePhotoInput')?.click()} disabled>
+              <Button variant="outline" onClick={() => document.getElementById('profilePhotoInput')?.click()}>
                 Choose Image
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Feature to upload and save profile photos is coming soon.</p>
+            <p className="text-xs text-muted-foreground">Profile photos are stored locally for preview. Full upload features coming soon.</p>
           </div>
         </CardContent>
         <CardFooter>

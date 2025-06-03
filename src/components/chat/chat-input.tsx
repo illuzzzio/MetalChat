@@ -4,7 +4,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Send, Image as ImageIcon, Paperclip, Volume2, Video, Brain, Mic, StopCircle, Play, Copy, Trash2, Download } from "lucide-react";
+import { Send, Image as ImageIcon, Paperclip, Volume2, Video, Brain, Mic, StopCircle, Play, Copy, Trash2, Download, Smile } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -24,7 +24,7 @@ interface ChatInputProps {
   ) => void;
   conversationId: string | null;
   onAddIdea: (idea: Idea) => void;
-  currentUserId: string | null; // Added to associate messages with a user
+  currentUserId: string | null;
 }
 
 export default function ChatInput({ onSendMessage, conversationId, onAddIdea, currentUserId }: ChatInputProps) {
@@ -43,8 +43,8 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
   const audioChunksRef = useRef<Blob[]>([]);
   const [recordingTime, setRecordingTime] = useState(0);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null); // null: unknown, true: granted, false: denied
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
 
   useEffect(() => {
@@ -52,14 +52,13 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     initializeAudio();
     const removeListeners = addToneStartListener();
 
+    // Check initial microphone permission
     navigator.permissions?.query({ name: 'microphone' as PermissionName }).then(permissionStatus => {
       setHasMicPermission(permissionStatus.state === 'granted');
       permissionStatus.onchange = () => {
         setHasMicPermission(permissionStatus.state === 'granted');
       };
     }).catch(() => {
-        // Permissions API might not be supported (e.g. older browsers, or specific contexts like http)
-        // We can assume null and let the getUserMedia call handle it.
         setHasMicPermission(null); 
     });
     
@@ -76,6 +75,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     onSendMessage(conversationId, messageText, 'text');
     setMessageText("");
     playSendSound();
+    if (textareaRef.current) textareaRef.current.focus();
   };
   
   const handleActualImageGeneration = async () => {
@@ -126,11 +126,14 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
       onSendMessage(conversationId, file.name, fileType, file);
       playSendSound();
     }
-    if(fileInputRef.current) fileInputRef.current.value = "";
+    if(fileInputRef.current) fileInputRef.current.value = ""; // Reset file input
   };
 
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
+  const triggerFileInput = (acceptType: string = "image/*,audio/*,video/*") => {
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = acceptType;
+      fileInputRef.current?.click();
+    }
   };
 
   const openImageGenModal = () => {
@@ -138,6 +141,11 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
   }
 
   const startRecording = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        toast({title: "Unsupported Browser", description: "Audio recording is not supported by your browser.", variant: "destructive"});
+        setHasMicPermission(false);
+        return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       setHasMicPermission(true);
@@ -145,15 +153,21 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
-        audioChunksRef.current.push(event.data);
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorderRef.current.onstop = () => {
-        const audioBlobData = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        setAudioBlob(audioBlobData);
-        const url = URL.createObjectURL(audioBlobData);
-        setAudioUrl(url);
-        stream.getTracks().forEach(track => track.stop()); // Stop tracks to release mic
+        if (audioChunksRef.current.length > 0) {
+            const audioBlobData = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // or audio/ogg; codecs=opus
+            setAudioBlob(audioBlobData);
+            const url = URL.createObjectURL(audioBlobData);
+            setAudioUrl(url);
+        } else {
+            setAudioBlob(null);
+            setAudioUrl(null);
+            toast({title: "Recording Empty", description: "No audio was recorded.", variant: "destructive"})
+        }
+        stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorderRef.current.start();
@@ -167,7 +181,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     } catch (err) {
       console.error("Error starting recording:", err);
       setHasMicPermission(false);
-      toast({ title: "Microphone Error", description: "Could not access microphone. Please check permissions.", variant: "destructive"});
+      toast({ title: "Microphone Error", description: "Could not access microphone. Please check permissions in your browser settings.", variant: "destructive"});
     }
   };
 
@@ -197,12 +211,13 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handlePaste = useCallback((event: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = useCallback(async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!conversationId || !currentUserId) return;
     const items = event.clipboardData?.items;
     if (items) {
       for (let i = 0; i < items.length; i++) {
         if (items[i].type.indexOf("image") !== -1) {
+          event.preventDefault(); 
           const blob = items[i].getAsFile();
           if (blob) {
             const reader = new FileReader();
@@ -213,7 +228,6 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
               }
             };
             reader.readAsDataURL(blob);
-            event.preventDefault(); // Prevent pasting text representation if any
             break; 
           }
         }
@@ -226,7 +240,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
     <>
       <div className="p-4 border-t border-border bg-card sticky bottom-0">
         {audioUrl && !isRecording && (
-          <div className="mb-2 p-2 border rounded-md bg-muted flex items-center justify-between">
+          <div className="mb-2 p-2 border rounded-md bg-muted flex items-center justify-between animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
             <div className="flex items-center gap-2">
               <audio src={audioUrl} controls className="h-8" />
               <span className="text-sm text-muted-foreground">Recording ({formatTime(recordingTime || 0)})</span>
@@ -243,7 +257,7 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
         )}
 
         {isRecording && (
-          <div className="mb-2 p-2 border rounded-md bg-destructive/20 flex items-center justify-between">
+          <div className="mb-2 p-2 border rounded-md bg-destructive/20 flex items-center justify-between animate-in fade-in-0 duration-200">
             <div className="flex items-center gap-2 text-destructive">
               <Mic className="h-5 w-5 animate-pulse" />
               <span>Recording: {formatTime(recordingTime)}</span>
@@ -254,21 +268,21 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
           </div>
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-end gap-2"> {/* items-end for textarea auto-height */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-accent-foreground" disabled={isRecording || isGeneratingImage}>
+              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-accent-foreground self-end mb-1" disabled={isRecording || isGeneratingImage || !conversationId}>
                 <Paperclip className="h-5 w-5" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-auto p-1 flex gap-1">
-              <Button variant="ghost" size="icon" onClick={triggerFileInput} title="Share Image File">
+            <PopoverContent className="w-auto p-1 flex gap-1 mb-1">
+              <Button variant="ghost" size="icon" onClick={() => triggerFileInput("image/*")} title="Share Image File">
                 <ImageIcon className="h-5 w-5" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={triggerFileInput} title="Share Audio File">
+              <Button variant="ghost" size="icon" onClick={() => triggerFileInput("audio/*")} title="Share Audio File">
                 <Volume2 className="h-5 w-5" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={triggerFileInput} title="Share Video File">
+              <Button variant="ghost" size="icon" onClick={() => triggerFileInput("video/*")} title="Share Video File">
                 <Video className="h-5 w-5" />
               </Button>
             </PopoverContent>
@@ -279,29 +293,33 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
             size="icon" 
             onClick={isRecording ? stopRecording : startRecording} 
             title={isRecording ? "Stop Recording" : "Start Recording"}
-            className={isRecording ? "text-destructive hover:bg-destructive/20" : "text-muted-foreground hover:text-accent-foreground"}
-            disabled={isGeneratingImage || (hasMicPermission === false && !isRecording)}
+            className={cn(
+                "self-end mb-1",
+                isRecording ? "text-destructive hover:bg-destructive/20" : "text-muted-foreground hover:text-accent-foreground",
+                hasMicPermission === false && !isRecording && "text-muted-foreground/50 cursor-not-allowed"
+            )}
+            disabled={isGeneratingImage || (hasMicPermission === false && !isRecording) || !conversationId}
           >
             {isRecording ? <StopCircle className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           </Button>
 
-          <Button variant="ghost" size="icon" onClick={openImageGenModal} title="Generate Image with MetalAI" className="text-muted-foreground hover:text-accent-foreground" disabled={isRecording || isGeneratingImage}>
+          <Button variant="ghost" size="icon" onClick={openImageGenModal} title="Generate Image with MetalAI" className="text-muted-foreground hover:text-accent-foreground self-end mb-1" disabled={isRecording || isGeneratingImage || !conversationId}>
             <Brain className="h-5 w-5" />
           </Button>
 
-          <Input
-            ref={inputRef}
-            type="text"
-            placeholder={isRecording ? "Recording audio..." : "Type a message to MetalChat..."}
+          <Textarea
+            ref={textareaRef}
+            placeholder={isRecording ? "Recording audio..." : (hasMicPermission === false ? "Mic disabled. Type..." : "Type a message to MetalChat...")}
             value={messageText}
             onChange={(e) => setMessageText(e.target.value)}
             onPaste={handlePaste}
-            className="flex-1 rounded-full px-4 py-2 bg-input focus-visible:ring-accent"
+            className="flex-1 rounded-lg px-4 py-2 bg-input focus-visible:ring-accent min-h-[40px] max-h-[120px] resize-none" // Adjust min/max height as needed
+            rows={1} // Start with 1 row, will auto-expand
             disabled={isGeneratingImage || isRecording || !!audioUrl || !conversationId}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && messageText.trim()) {
-                e.preventDefault(); // Prevent newline
-                // handleSendMessageClick(); // We removed enter-to-send
+              if (e.key === 'Enter' && !e.shiftKey && messageText.trim() && !isRecording && !audioUrl) {
+                e.preventDefault(); 
+                handleSendMessageClick();
               }
             }}
           />
@@ -309,14 +327,14 @@ export default function ChatInput({ onSendMessage, conversationId, onAddIdea, cu
             variant="default" 
             size="icon" 
             onClick={handleSendMessageClick}
-            className="rounded-full bg-accent hover:bg-accent/90 text-accent-foreground"
+            className="rounded-full bg-accent hover:bg-accent/90 text-accent-foreground self-end mb-1"
             aria-label="Send message"
             disabled={!messageText.trim() || isGeneratingImage || isRecording || !!audioUrl || !conversationId}
           >
             <Send className="h-5 w-5" />
           </Button>
         </div>
-        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*,audio/*,video/*" />
+        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
       </div>
 
       <AlertDialog open={isImageGenModalOpen} onOpenChange={setIsImageGenModalOpen}>
