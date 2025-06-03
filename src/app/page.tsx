@@ -1,56 +1,33 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import ChatSidebar from "@/components/chat/chat-sidebar";
 import ChatArea from "@/components/chat/chat-area";
 import type { Conversation, Message } from "@/types/chat";
 import { initTone, addToneStartListener } from '@/lib/sounds';
+import { db } from '@/lib/firebase'; // Firebase setup
+import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, Timestamp } from "firebase/firestore";
+import { metalAIChat } from '@/ai/flows/metalai-chat-flow';
+import { useToast } from '@/hooks/use-toast';
 
-const mockConversations: Conversation[] = [
-  {
-    id: "1",
-    name: "Project Phoenix",
-    avatarUrl: "https://placehold.co/100x100.png?text=PP",
-    lastMessage: "Let's discuss the new schematics.",
-    timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 mins ago
-    messages: [
-      { id: "m1", text: "Hey, how's the new design coming along?", sender: "other", timestamp: new Date(Date.now() - 1000 * 60 * 10).toISOString(), type: 'text' },
-      { id: "m2", text: "Pretty good! Just finishing up the final touches. Here's a preview.", sender: "user", timestamp: new Date(Date.now() - 1000 * 60 * 8).toISOString(), type: 'text' },
-      { id: "m3", text: "Looks great!", sender: "other", timestamp: new Date(Date.now() - 1000 * 60 * 7).toISOString(), type: 'text' },
-      { id: "m4", text: "Let's discuss the new schematics.", sender: "user", timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString(), type: 'text' },
-    ],
-  },
-  {
-    id: "2",
-    name: "Marketing Campaign",
-    avatarUrl: "https://placehold.co/100x100.png?text=MC",
-    lastMessage: "Can you send over the latest ad copy?",
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
-    messages: [
-      { id: "m5", text: "Meeting at 3 PM today.", sender: "other", timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(), type: 'text' },
-      { id: "m6", text: "Can you send over the latest ad copy?", sender: "user", timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), type: 'text' },
-    ],
-  },
-  {
-    id: "3",
-    name: "General Discussion",
-    avatarUrl: "https://placehold.co/100x100.png?text=GD",
-    lastMessage: "Sure, I'll join the call.",
-    timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
-    messages: [
-      {id: "m7", text: "Anyone free for a quick sync-up?", sender: "other", timestamp: new Date(Date.now() - 1000 * 60 * 60 * 25).toISOString(), type: 'text'},
-      {id: "m8", text: "Sure, I'll join the call.", sender: "user", timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), type: 'text'}
-    ],
-  },
-];
+// For simplicity, using a single hardcoded conversation ID for real-time demo
+const SHARED_CONVERSATION_ID = "global-chat";
 
+const initialGlobalConversation: Conversation = {
+  id: SHARED_CONVERSATION_ID,
+  name: "Global MetalAI Chat",
+  avatarUrl: "https://placehold.co/100x100.png?text=GC",
+  lastMessage: "Welcome to the global chat!",
+  timestamp: new Date().toISOString(),
+  messages: [],
+};
 
 export default function HomePage() {
-  const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
-  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<Conversation[]>([initialGlobalConversation]);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(SHARED_CONVERSATION_ID);
+  const { toast } = useToast();
 
   useEffect(() => {
-    // Initialize Tone.js on component mount and user interaction
     const initAudio = async () => {
       await initTone();
     };
@@ -58,69 +35,162 @@ export default function HomePage() {
     const removeListeners = addToneStartListener();
     return removeListeners;
   }, []);
-  
-  // Auto-select the first conversation if none is selected
+
+  // Subscribe to Firestore messages for the selected conversation
   useEffect(() => {
-    if (!selectedConversationId && conversations.length > 0) {
-      setSelectedConversationId(conversations[0].id);
-    }
-  }, [conversations, selectedConversationId]);
+    if (!selectedConversationId) return;
+
+    const messagesRef = collection(db, "conversations", selectedConversationId, "messages");
+    const q = query(messagesRef, orderBy("timestamp", "asc"));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const fetchedMessages: Message[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        fetchedMessages.push({
+          id: doc.id,
+          text: data.text,
+          sender: data.sender,
+          timestamp: (data.timestamp as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
+          type: data.type,
+          fileUrl: data.fileUrl,
+          fileName: data.fileName,
+        });
+      });
+
+      setConversations(prevConvos =>
+        prevConvos.map(convo =>
+          convo.id === selectedConversationId
+            ? { ...convo, messages: fetchedMessages, lastMessage: fetchedMessages[fetchedMessages.length -1]?.text || convo.lastMessage, timestamp: fetchedMessages[fetchedMessages.length -1]?.timestamp || convo.timestamp }
+            : convo
+        ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      );
+    }, (error) => {
+      console.error("Error fetching messages:", error);
+      toast({ title: "Error", description: "Could not fetch messages.", variant: "destructive" });
+    });
+
+    return () => unsubscribe();
+  }, [selectedConversationId, toast]);
+
 
   const handleSelectConversation = (id: string) => {
     setSelectedConversationId(id);
   };
 
-  const handleSendMessage = (conversationId: string, text: string, type: 'text' | 'image' | 'audio' | 'video' = 'text', file?: File) => {
-    const newMessage: Message = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      text: type === 'text' ? text : '', // Text is primary for text messages
+  const handleSendMessage = useCallback(async (conversationId: string, text: string, type: Message['type'] = 'text', file?: File, imageDataUri?: string) => {
+    if (!conversationId) return;
+
+    const messagesRef = collection(db, "conversations", conversationId, "messages");
+
+    const userMessageData: Omit<Message, 'id' | 'timestamp'> & { timestamp: any } = {
+      text: type === 'text' ? text : (file?.name || 'Shared Media'),
       sender: 'user',
-      timestamp: new Date().toISOString(),
       type,
-      fileUrl: file ? URL.createObjectURL(file) : undefined, // Mock URL for display
-      fileName: file ? file.name : text, // Use text as filename for text type for simplicity or file.name
+      fileUrl: type !== 'text' ? (imageDataUri || (file ? URL.createObjectURL(file) : undefined)) : undefined, // Use imageDataUri if provided (for AI images)
+      fileName: file?.name || (type === 'image' && !file ? 'AI Generated Image' : text),
+      timestamp: serverTimestamp(), // Use Firestore server timestamp
     };
 
-    setConversations(prevConvos =>
-      prevConvos.map(convo => {
-        if (convo.id === conversationId) {
-          return {
-            ...convo,
-            messages: [...convo.messages, newMessage],
-            lastMessage: type === 'text' ? text : `[${type.charAt(0).toUpperCase() + type.slice(1)}] ${newMessage.fileName}`,
-            timestamp: newMessage.timestamp,
-          };
-        }
-        return convo;
-      })
-    );
+    try {
+      const userMessageDocRef = await addDoc(messagesRef, userMessageData);
+      
+      // If it's a text message from the user, trigger MetalAI response
+      if (type === 'text' && userMessageData.sender === 'user') {
+        // Add a temporary loading message for AI
+        const loadingAiMessageId = `metalai-loading-${Date.now()}`;
+         setConversations(prevConvos =>
+            prevConvos.map(convo => {
+              if (convo.id === conversationId) {
+                return {
+                  ...convo,
+                  messages: [...convo.messages, {
+                      id: loadingAiMessageId,
+                      text: "MetalAI is thinking...",
+                      sender: 'metalAI',
+                      timestamp: new Date().toISOString(),
+                      type: 'text',
+                      isLoading: true,
+                    }],
+                };
+              }
+              return convo;
+            })
+          );
 
-    // Simulate a reply after a short delay
-    if (type === 'text') { // Only auto-reply to text messages for now
-      setTimeout(() => {
-        const replyMessage: Message = {
-          id: `msg-${Date.now()}-reply-${Math.random().toString(36).substring(2, 9)}`,
-          text: `Got it: "${text.substring(0, 20)}${text.length > 20 ? '...' : ''}"`,
-          sender: 'other',
-          timestamp: new Date().toISOString(),
-          type: 'text',
-        };
-        setConversations(prevConvos =>
-          prevConvos.map(convo => {
-            if (convo.id === conversationId) {
-              return {
-                ...convo,
-                messages: [...convo.messages, replyMessage],
-                lastMessage: replyMessage.text,
-                timestamp: replyMessage.timestamp,
-              };
-            }
-            return convo;
-          }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-        );
-      }, 1500);
+        try {
+          const currentConvo = conversations.find(c => c.id === conversationId);
+          const chatHistoryForAI = currentConvo?.messages
+            .filter(msg => !msg.isLoading && (msg.sender === 'user' || msg.sender === 'metalAI') && msg.type === 'text')
+            .slice(-10) // Get last 10 messages for history
+            .map(msg => ({
+              role: msg.sender === 'user' ? 'user' : 'model' as 'user' | 'model',
+              parts: [{ text: msg.text }]
+            })) || [];
+
+
+          const aiResponse = await metalAIChat({ userInput: text, chatHistory: chatHistoryForAI });
+          
+          // Remove loading message
+          setConversations(prevConvos =>
+            prevConvos.map(convo => {
+              if (convo.id === conversationId) {
+                return {
+                  ...convo,
+                  messages: convo.messages.filter(msg => msg.id !== loadingAiMessageId),
+                };
+              }
+              return convo;
+            })
+          );
+          
+          await addDoc(messagesRef, {
+            text: aiResponse.aiResponse,
+            sender: 'metalAI',
+            type: 'text',
+            timestamp: serverTimestamp(),
+          });
+        } catch (aiError) {
+          console.error("MetalAI chat error:", aiError);
+          toast({ title: "MetalAI Error", description: "MetalAI could not respond.", variant: "destructive" });
+           // Remove loading message on error
+           setConversations(prevConvos =>
+            prevConvos.map(convo => {
+              if (convo.id === conversationId) {
+                return {
+                  ...convo,
+                  messages: convo.messages.filter(msg => msg.id !== loadingAiMessageId),
+                };
+              }
+              return convo;
+            })
+          );
+          await addDoc(messagesRef, {
+            text: "Sorry, I encountered an error.",
+            sender: 'metalAI',
+            type: 'text',
+            timestamp: serverTimestamp(),
+          });
+        }
+      } else if ((type === 'image' || type === 'video' || type === 'audio') && !imageDataUri) {
+        // This is a user file upload. In a real app, upload to Firebase Storage here.
+        // For now, it's just added to Firestore with a local blob URL if 'file' exists.
+        // The 'fileUrl' in userMessageData already has URL.createObjectURL(file)
+        // Or if it's an AI generated image, imageDataUri will be set and used.
+         if(type === 'video' && file){
+             toast({
+                title: "Video Handling",
+                description: `"${file.name}" is shown locally. Real-time video sharing requires backend upload, which is not fully implemented in this version.`,
+                duration: 5000,
+             });
+         }
+      }
+
+    } catch (error) {
+      console.error("Error sending message:", error);
+      toast({ title: "Send Error", description: "Could not send message.", variant: "destructive" });
     }
-  };
+  }, [toast, conversations]); // Added conversations to dependency array for chatHistoryForAI
   
   const selectedConversation = conversations.find(c => c.id === selectedConversationId) || null;
 
@@ -128,7 +198,7 @@ export default function HomePage() {
     <div className="flex h-screen w-screen overflow-hidden antialiased text-foreground bg-background">
       <div className="w-full md:w-1/4 lg:w-1/5 max-w-xs hidden md:block h-full shrink-0">
         <ChatSidebar
-          conversations={conversations.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())}
+          conversations={conversations} // Already sorted by onSnapshot update
           selectedConversationId={selectedConversationId}
           onSelectConversation={handleSelectConversation}
         />

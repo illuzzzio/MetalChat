@@ -13,19 +13,19 @@ import { ScrollArea } from "../ui/scroll-area";
 
 interface ChatAreaProps {
   conversation: Conversation | null;
-  onSendMessage: (conversationId: string, text: string, type?: 'text' | 'image' | 'audio' | 'video', file?: File) => void;
+  onSendMessage: (
+    conversationId: string,
+    text: string,
+    type?: Message['type'],
+    file?: File,
+    imageDataUri?: string
+  ) => void;
 }
 
 export default function ChatArea({ conversation, onSendMessage }: ChatAreaProps) {
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const { toast } = useToast();
-
-  const handleSendMessage = (text: string, type?: 'text' | 'image' | 'audio' | 'video', file?: File) => {
-    if (conversation) {
-      onSendMessage(conversation.id, text, type, file);
-    }
-  };
 
   const handleSummarizeChat = async () => {
     if (!conversation || conversation.messages.length === 0) {
@@ -35,7 +35,8 @@ export default function ChatArea({ conversation, onSendMessage }: ChatAreaProps)
 
     setIsSummaryLoading(true);
     const chatLog = conversation.messages
-      .map(msg => `${msg.sender === 'user' ? 'User' : 'Other'}: ${msg.text}${msg.fileName ? ` [File: ${msg.fileName}]` : ''}`)
+      .filter(msg => !msg.isLoading) // Exclude loading messages from summary
+      .map(msg => `${msg.sender === 'user' ? 'User' : (msg.sender === 'metalAI' ? 'MetalAI' : 'Other')}: ${msg.text}${msg.fileName ? ` [File: ${msg.fileName}]` : ''}`)
       .join('\n');
     
     try {
@@ -52,12 +53,10 @@ export default function ChatArea({ conversation, onSendMessage }: ChatAreaProps)
 
   return (
     <div className="flex flex-col h-full relative bg-background text-foreground overflow-hidden">
-      {/* Placeholder for 3D Shader Background */}
       <div
         className="absolute inset-0 -z-10 bg-gradient-to-br from-slate-800 via-slate-900 to-zinc-900 opacity-50 dark:opacity-100"
         data-shader-placeholder
       >
-        {/* This div could host a Three.js canvas */}
       </div>
       
       <ChatHeader conversation={conversation} onSummarize={handleSummarizeChat} />
@@ -65,7 +64,8 @@ export default function ChatArea({ conversation, onSendMessage }: ChatAreaProps)
       {conversation ? (
         <>
           <ChatMessages messages={conversation.messages} />
-          <ChatInput onSendMessage={handleSendMessage} />
+          {/* Pass conversation.id to ChatInput for its onSendMessage calls */}
+          <ChatInput onSendMessage={onSendMessage} conversationId={conversation.id} />
         </>
       ) : (
         <div className="flex-1 flex items-center justify-center">
